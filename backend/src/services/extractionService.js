@@ -13,12 +13,13 @@ function extractInvoiceNumber(text) {
 }
 
 function extractVendorName(text) {
+  // Use [ \t] instead of \s so newlines don't bleed into the next line
   const patterns = [
-    /from\s*[:\-]?\s*([A-Za-z0-9\s&.,'-]{3,50}?)(?:\n|ltd|llc|inc|corp|co\.)/i,
-    /billed?\s*(?:from|by)\s*[:\-]?\s*([A-Za-z0-9\s&.,'-]{3,50})/i,
-    /seller\s*[:\-]?\s*([A-Za-z0-9\s&.,'-]{3,50})/i,
-    /vendor\s*[:\-]?\s*([A-Za-z0-9\s&.,'-]{3,50})/i,
-    /^([A-Z][A-Za-z0-9\s&.,'-]{2,40}(?:Ltd|LLC|Inc|Corp|Co\.?))/m
+    /from\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50}?)(?:\n|ltd|llc|inc|corp|co\.)/i,
+    /billed?\s*(?:from|by)\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
+    /seller\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
+    /vendor\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
+    /^([A-Z][A-Za-z0-9 \t&.,'-]{2,40}(?:Ltd|LLC|Inc|Corp|Co\.?))/m
   ];
   for (const p of patterns) {
     const m = text.match(p);
@@ -28,7 +29,6 @@ function extractVendorName(text) {
 }
 
 function extractGSTNumber(text) {
-  // Indian GST format: 2 digits + 5 letters + 4 digits + 1 letter + 1 alphanumeric + Z + 1 alphanumeric
   const gstPattern = /\b(\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/;
   const m = text.match(gstPattern);
   if (m) return { value: m[1], confidence: 92 };
@@ -99,13 +99,20 @@ function extractDates(text) {
 }
 
 function extractCurrency(text) {
-  if (/₹/.test(text)) return { value: 'INR', confidence: 90 };
-  if (/\$/.test(text)) return { value: 'USD', confidence: 80 };
-  if (/€/.test(text)) return { value: 'EUR', confidence: 80 };
-  if (/£/.test(text)) return { value: 'GBP', confidence: 80 };
+  // Symbol checks — must come before generic pattern to avoid false positives
+  if (/₹/.test(text))           return { value: 'INR', confidence: 90 };
+  if (/\bRs\./.test(text))       return { value: 'INR', confidence: 85 };
+  if (/\$/.test(text))          return { value: 'USD', confidence: 80 };
+  if (/€/.test(text))           return { value: 'EUR', confidence: 80 };
+  if (/£/.test(text))           return { value: 'GBP', confidence: 80 };
 
-  const m = text.match(/(?:currency\s*[:\-]?\s*|^|\s)([A-Z]{3})\b/);
-  if (m?.[1]) return { value: m[1], confidence: 75 };
+  // Explicit "Currency: XXX" label — high confidence
+  const labeled = text.match(/currency\s*[:\-]\s*([A-Z]{3})\b/i);
+  if (labeled?.[1]) return { value: labeled[1].toUpperCase(), confidence: 90 };
+
+  // Known ISO codes anywhere in text (avoids matching random 3-letter words like TAX)
+  const known = text.match(/\b(USD|EUR|GBP|INR|JPY|CAD|AUD|CHF|CNY)\b/);
+  if (known?.[1]) return { value: known[1], confidence: 75 };
 
   return { value: 'USD', confidence: 30 };
 }
@@ -113,21 +120,25 @@ function extractCurrency(text) {
 function extractAmounts(text) {
   const parseAmount = (str) => str ? parseFloat(str.replace(/,/g, '')) : null;
 
+  // Use [^0-9\n]* after label to skip any currency prefix (₹, $, Rs., ¹, etc.)
   const totalPatterns = [
-    /(?:total\s*amount|grand\s*total|amount\s*due|total\s*due|balance\s*due)\s*[:\-]?\s*[\$€£₹]?\s*(\d[\d,]*\.?\d*)/i,
-    /total\s*[:\-]?\s*[\$€£₹]?\s*(\d[\d,]*\.?\d*)/i
+    /(?:total\s*amount|grand\s*total|amount\s*due|total\s*due|balance\s*due)[^0-9\n]*(\d[\d,]*\.?\d*)/i,
+    /(?:amount\s*payable|net\s*payable|payable\s*amount)[^0-9\n]*(\d[\d,]*\.?\d*)/i
   ];
   const subtotalPatterns = [
-    /(?:sub\s*total|subtotal|net\s*amount|amount\s*before\s*tax)\s*[:\-]?\s*[\$€£₹]?\s*(\d[\d,]*\.?\d*)/i
+    /(?:sub\s*total|subtotal|net\s*amount|amount\s*before\s*tax)[^0-9\n]*(\d[\d,]*\.?\d*)/i
   ];
+  // Word boundaries prevent "gst" from matching inside "GSTIN".
+  // Requiring a colon (via [^:\n]*:) prevents percentage specs like "(GST 18%)"
+  // from being extracted — only "GST: amount" or "Tax (GST 18%): amount" are valid.
   const taxPatterns = [
-    /(?:tax|vat|gst|hst|sales\s*tax)\s*(?:\(\d+%\))?\s*[:\-]?\s*[\$€£₹]?\s*(\d[\d,]*\.?\d*)/i,
-    /(?:tax\s*amount)\s*[:\-]?\s*[\$€£₹]?\s*(\d[\d,]*\.?\d*)/i
+    /\b(?:tax\s*amount|tax\s*total)\b[^0-9\n]*(\d[\d,]*\.?\d*)/i,
+    /\b(?:tax|vat|gst|hst)\b[^:\n]*:\s*[^0-9\n]*(\d[\d,]*\.?\d*)/i
   ];
 
   let totalAmount = { value: null, confidence: 0 };
-  let subTotal = { value: null, confidence: 0 };
-  let tax = { value: null, confidence: 0 };
+  let subTotal    = { value: null, confidence: 0 };
+  let tax         = { value: null, confidence: 0 };
 
   for (const p of totalPatterns) {
     const m = text.match(p);
@@ -156,9 +167,9 @@ function extractLineItems(text) {
   let match;
   while ((match = lineItemPattern.exec(text)) !== null && lineItems.length < 20) {
     const description = match[1].trim();
-    const quantity = parseFloat(match[2]);
-    const unitPrice = parseFloat(match[3].replace(/,/g, ''));
-    const totalPrice = parseFloat(match[4].replace(/,/g, ''));
+    const quantity    = parseFloat(match[2]);
+    const unitPrice   = parseFloat(match[3].replace(/,/g, ''));
+    const totalPrice  = parseFloat(match[4].replace(/,/g, ''));
     if (description.length > 2 && !isNaN(quantity) && !isNaN(unitPrice) && !isNaN(totalPrice)) {
       lineItems.push({ description, quantity, unitPrice, totalPrice, confidence: 75 });
     }
@@ -181,9 +192,7 @@ function extractInvoiceData(rawText) {
       totalAmount:   { value: null, confidence: 0 },
       currency:      { value: 'USD', confidence: 30 },
       bankAccount:   { value: null, confidence: 0 },
-      overallConfidence: 0,
-      extractedFieldCount: 0,
-      totalFields: 8
+      overallConfidence: 0, extractedFieldCount: 0, totalFields: 8
     };
   }
 
@@ -193,9 +202,9 @@ function extractInvoiceData(rawText) {
   const poNumber      = extractPONumber(rawText);
   const { invoiceDate, dueDate } = extractDates(rawText);
   const { totalAmount, subTotal, tax } = extractAmounts(rawText);
-  const currency      = extractCurrency(rawText);
-  const lineItems     = extractLineItems(rawText);
-  const bankAccount   = extractBankAccount(rawText);
+  const currency    = extractCurrency(rawText);
+  const lineItems   = extractLineItems(rawText);
+  const bankAccount = extractBankAccount(rawText);
 
   const keyFields = [invoiceNumber, vendorName, invoiceDate, totalAmount];
   const extractedFieldCount = keyFields.filter((f) => f.value !== null).length;
