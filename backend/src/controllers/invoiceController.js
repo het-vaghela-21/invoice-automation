@@ -175,13 +175,25 @@ exports.submitMatching = async (req, res, next) => {
     const baseline = flattenExtracted(invoice.extractedData);
     const verifiedData = { ...baseline, ...(invoice.userVerifiedData || {}) };
 
+    // Always re-run duplicate check so a deleted duplicate doesn't block matching
+    const freshDuplicateCheck = await checkDuplicate(
+      invoice.uploadedFile?.hash,
+      invoice.invoiceNumber || verifiedData.invoiceNumber,
+      invoice._id
+    );
+    // Plain object — avoids Mongoose cast errors when re-assigning validationResult
+    const duplicateCheck = {
+      isDuplicate: freshDuplicateCheck.isDuplicate,
+      similarInvoiceId: freshDuplicateCheck.similarInvoiceId || null
+    };
+
     let validationResult;
 
     if (invoice.purchaseOrder) {
       const po = invoice.purchaseOrder;
       const vendor = po.vendor || invoice.vendor;
       validationResult = validateAgainstPO(verifiedData, po, vendor);
-      validationResult.duplicateCheck = invoice.validationResult?.duplicateCheck || { isDuplicate: false };
+      validationResult.duplicateCheck = duplicateCheck;
     } else {
       // No PO linked — try fuzzy vendor match only
       let vendorMatchStatus = 'passed';
@@ -203,8 +215,17 @@ exports.submitMatching = async (req, res, next) => {
         status: vendorMatchStatus,
         matchScore: vendorMatchStatus === 'passed' ? 80 : 40,
         discrepancies,
-        duplicateCheck: invoice.validationResult?.duplicateCheck || { isDuplicate: false }
+        duplicateCheck
       };
+    }
+
+    // If a duplicate is still detected, force to review_required regardless of PO match
+    if (duplicateCheck.isDuplicate) {
+      validationResult.status = 'review_required';
+      validationResult.discrepancies = [
+        ...validationResult.discrepancies,
+        { field: 'duplicateInvoice', expected: 'Unique invoice', actual: 'Duplicate detected', severity: 'high' }
+      ];
     }
 
     invoice.validationResult = validationResult;
