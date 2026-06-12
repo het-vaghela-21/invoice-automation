@@ -47,7 +47,13 @@ const vendorSchema = new mongoose.Schema(
       type: String,
       default: 'Net 30'
     },
-    notes: String
+    notes: String,
+    requiredFields: [
+      {
+        fieldKey: { type: String, required: true },
+        fieldLabel: { type: String, required: true }
+      }
+    ]
   },
   { timestamps: true }
 );

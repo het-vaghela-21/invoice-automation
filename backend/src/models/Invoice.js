@@ -30,20 +30,19 @@ const processingLogSchema = new mongoose.Schema({
   }
 });
 
+const fieldChangeSchema = new mongoose.Schema({
+  field: String,
+  oldValue: String,
+  newValue: String,
+  changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  changedAt: { type: Date, default: Date.now }
+});
+
 const invoiceSchema = new mongoose.Schema(
   {
-    invoiceNumber: {
-      type: String,
-      trim: true
-    },
-    vendor: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Vendor'
-    },
-    purchaseOrder: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'PurchaseOrder'
-    },
+    invoiceNumber: { type: String, trim: true },
+    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
+    purchaseOrder: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder' },
     uploadedFile: {
       filename: String,
       originalName: String,
@@ -52,25 +51,29 @@ const invoiceSchema = new mongoose.Schema(
       size: Number,
       hash: String
     },
-    ocrText: {
-      type: String,
-      default: ''
-    },
+    ocrText: { type: String, default: '' },
     extractedData: {
       invoiceNumber: { value: String, confidence: Number },
-      vendorName: { value: String, confidence: Number },
-      invoiceDate: { value: String, confidence: Number },
-      dueDate: { value: String, confidence: Number },
-      lineItems: [extractedLineItemSchema],
-      subTotal: { value: Number, confidence: Number },
-      tax: { value: Number, confidence: Number },
-      totalAmount: { value: Number, confidence: Number },
-      currency: { value: String, confidence: Number }
+      vendorName:    { value: String, confidence: Number },
+      gstNumber:     { value: String, confidence: Number },
+      poNumber:      { value: String, confidence: Number },
+      invoiceDate:   { value: String, confidence: Number },
+      dueDate:       { value: String, confidence: Number },
+      lineItems:     [extractedLineItemSchema],
+      subTotal:      { value: Number, confidence: Number },
+      tax:           { value: Number, confidence: Number },
+      totalAmount:   { value: Number, confidence: Number },
+      currency:      { value: String, confidence: Number },
+      bankAccount:   { value: String, confidence: Number }
     },
+    // User-edited version of extracted fields (flat key→value)
+    userVerifiedData: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Log of every field change made by users
+    fieldChanges: [fieldChangeSchema],
     validationResult: {
       status: {
         type: String,
-        enum: ['validated', 'rejected', 'pending'],
+        enum: ['passed', 'review_required', 'rejected', 'pending'],
         default: 'pending'
       },
       matchScore: { type: Number, default: 0 },
@@ -82,19 +85,15 @@ const invoiceSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['uploaded', 'processing', 'validated', 'rejected'],
+      enum: ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'],
       default: 'uploaded'
     },
     processingLog: [processingLogSchema],
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    }
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }
 );
 
-// Index for duplicate detection and filtering
 invoiceSchema.index({ 'uploadedFile.hash': 1 });
 invoiceSchema.index({ status: 1, createdAt: -1 });
 invoiceSchema.index({ vendor: 1 });

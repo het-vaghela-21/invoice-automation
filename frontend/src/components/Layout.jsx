@@ -58,8 +58,8 @@ export default function Layout({ children }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">{children}</div>
+      <main className="flex-1 overflow-auto flex flex-col">
+        <div className="p-8 flex-1 flex flex-col">{children}</div>
       </main>
     </div>
   );

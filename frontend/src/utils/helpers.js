@@ -10,15 +10,19 @@ export const formatDate = (date) => {
 
 export const getStatusBadge = (status) => {
   const map = {
-    validated: 'badge-validated',
-    rejected: 'badge-rejected',
-    processing: 'badge-processing',
-    uploaded: 'badge-uploaded',
-    pending: 'badge-pending',
-    approved: 'badge-approved',
-    draft: 'badge-draft',
-    active: 'badge-active',
-    inactive: 'badge-inactive'
+    uploaded:        'badge-uploaded',
+    ocr_extracted:   'badge-ocr_extracted',
+    pending_review:  'badge-pending_review',
+    review_required: 'badge-review_required',
+    passed:          'badge-passed',
+    rejected:        'badge-rejected',
+    processing:      'badge-processing',
+    validated:       'badge-validated',
+    pending:         'badge-pending',
+    approved:        'badge-approved',
+    draft:           'badge-draft',
+    active:          'badge-active',
+    inactive:        'badge-inactive'
   };
   return map[status] || 'badge-pending';
 };

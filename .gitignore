@@ -5,3 +5,5 @@ uploads/*
 dist/
 .DS_Store
 *.log
+mongodb-data/
+*.log

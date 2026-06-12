@@ -42,11 +42,14 @@ export const poAPI = {
 };
 
 export const invoiceAPI = {
-  getAll: (params) => api.get('/invoices', { params }),
-  getOne: (id) => api.get(`/invoices/${id}`),
-  upload: (formData) => api.post('/invoices', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  reprocess: (id) => api.post(`/invoices/${id}/reprocess`),
-  delete: (id) => api.delete(`/invoices/${id}`)
+  getAll:         (params) => api.get('/invoices', { params }),
+  getOne:         (id) => api.get(`/invoices/${id}`),
+  upload:         (formData) => api.post('/invoices', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  triggerOCR:     (id) => api.post(`/invoices/${id}/ocr`),
+  updateFields:   (id, fields) => api.patch(`/invoices/${id}/fields`, { fields }),
+  submitMatching: (id) => api.post(`/invoices/${id}/match`),
+  rejectInvoice:  (id, reason) => api.post(`/invoices/${id}/reject`, { reason }),
+  delete:         (id) => api.delete(`/invoices/${id}`)
 };
 
 export const dashboardAPI = {

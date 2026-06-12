@@ -36,10 +36,10 @@ export default function Invoices() {
       </div>
 
       <div className="card p-4 flex gap-4 flex-wrap">
-        {['', 'uploaded', 'processing', 'validated', 'rejected'].map((s) => (
+        {['', 'uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'].map((s) => (
           <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-            {s || 'All'}
+            {s === '' ? 'All' : s === 'ocr_extracted' ? 'OCR Done' : s === 'pending_review' ? 'Pending Review' : s === 'review_required' ? 'Review Required' : s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
       </div>
