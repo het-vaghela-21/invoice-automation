@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { invoiceAPI } from '../services/api';
 import { getStatusBadge, getScoreColor } from '../utils/helpers';
 
-// Maps fieldKey → { label, type }
 const FIELD_META = {
   vendorName:    { label: 'Vendor Name',    type: 'text' },
   gstNumber:     { label: 'GST Number',     type: 'text' },
@@ -20,7 +19,6 @@ const FIELD_META = {
 
 const ALL_FIELD_KEYS = Object.keys(FIELD_META);
 
-// Get OCR-extracted value for a field key
 function getExtracted(ext, key) {
   if (!ext) return null;
   switch (key) {
@@ -59,52 +57,41 @@ function getConfidence(ext, key) {
 
 function ConfidenceDot({ value }) {
   if (!value) return null;
-  const color = value >= 80 ? 'bg-green-400' : value >= 60 ? 'bg-yellow-400' : 'bg-red-400';
+  const color = value >= 80 ? 'bg-emerald-400' : value >= 60 ? 'bg-amber-400' : 'bg-red-400';
   return (
-    <span className="flex items-center gap-1 text-xs text-gray-400">
-      <span className={`w-2 h-2 rounded-full ${color}`}></span>
+    <span className="flex items-center gap-1 text-xs text-ivory-400">
+      <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
       {value}%
     </span>
   );
 }
 
-// Left panel: file preview
 function FilePreview({ invoice }) {
   const { filename, mimetype } = invoice.uploadedFile || {};
   const url = `/uploads/${filename}`;
-
-  if (!filename) return <div className="flex items-center justify-center h-full text-gray-400">No file</div>;
-
+  if (!filename) return <div className="flex items-center justify-center h-full text-ivory-400 text-sm">No file attached</div>;
   if (mimetype === 'application/pdf') {
-    return (
-      <embed
-        src={url}
-        type="application/pdf"
-        className="w-full h-full"
-        title="Invoice Preview"
-      />
-    );
+    return <embed src={url} type="application/pdf" className="w-full h-full" title="Invoice Preview" />;
   }
   return (
-    <div className="w-full h-full overflow-auto bg-gray-100 flex items-start justify-center p-4">
-      <img src={url} alt="Invoice" className="max-w-full object-contain shadow-md" />
+    <div className="w-full h-full overflow-auto bg-ivory-100 flex items-start justify-center p-4">
+      <img src={url} alt="Invoice" className="max-w-full object-contain shadow-md rounded" />
     </div>
   );
 }
 
-// Status step bar
 function StatusBar({ status }) {
   const steps = [
-    { key: 'uploaded',        label: 'Uploaded' },
-    { key: 'ocr_extracted',   label: 'OCR Done' },
-    { key: 'pending_review',  label: 'Verified' },
-    { key: 'passed',          label: 'Passed' },
+    { key: 'uploaded',       label: 'Uploaded' },
+    { key: 'ocr_extracted',  label: 'OCR Done' },
+    { key: 'pending_review', label: 'Verified' },
+    { key: 'passed',         label: 'Passed' },
   ];
   const order = ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'];
   const currentIdx = order.indexOf(status);
 
   return (
-    <div className="flex items-center gap-0">
+    <div className="hidden sm:flex items-center gap-0">
       {steps.map((step, i) => {
         const stepIdx = order.indexOf(step.key);
         const done = currentIdx > stepIdx;
@@ -112,17 +99,19 @@ function StatusBar({ status }) {
         return (
           <React.Fragment key={step.key}>
             <div className="flex flex-col items-center">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
-                done ? 'bg-blue-600 border-blue-600 text-white' :
-                active ? 'bg-white border-blue-600 text-blue-600' :
-                'bg-white border-gray-300 text-gray-400'
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
+                done ? 'bg-amber-500 border-amber-500 text-white' :
+                active ? 'bg-white border-amber-500 text-amber-600' :
+                'bg-white border-ivory-300 text-ivory-400'
               }`}>
                 {done ? '✓' : i + 1}
               </div>
-              <span className={`text-xs mt-1 ${active ? 'text-blue-600 font-medium' : done ? 'text-blue-500' : 'text-gray-400'}`}>{step.label}</span>
+              <span className={`text-[10px] mt-0.5 font-medium ${active ? 'text-amber-600' : done ? 'text-amber-400' : 'text-ivory-400'}`}>
+                {step.label}
+              </span>
             </div>
             {i < steps.length - 1 && (
-              <div className={`h-0.5 flex-1 mx-1 mb-4 ${done ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
+              <div className={`h-px flex-1 mx-1 mb-4 ${done ? 'bg-amber-400' : 'bg-ivory-300'}`} />
             )}
           </React.Fragment>
         );
@@ -151,7 +140,6 @@ export default function InvoiceDetail() {
       .then((res) => {
         const inv = res.data.data;
         setInvoice(inv);
-        // Initialise edit form from userVerifiedData → extractedData fallback
         const init = {};
         ALL_FIELD_KEYS.forEach((key) => {
           const verified = inv.userVerifiedData?.[key];
@@ -174,8 +162,7 @@ export default function InvoiceDetail() {
   };
 
   const handleOCR = async () => {
-    setOcrLoading(true);
-    setError('');
+    setOcrLoading(true); setError('');
     try {
       const res = await invoiceAPI.triggerOCR(id);
       setInvoice(res.data.data);
@@ -189,55 +176,42 @@ export default function InvoiceDetail() {
       setChangedKeys(new Set());
     } catch (err) {
       setError(err.response?.data?.message || err.response?.data?.error || 'OCR failed');
-    } finally {
-      setOcrLoading(false);
-    }
+    } finally { setOcrLoading(false); }
   };
 
   const handleSave = async () => {
-    setSaveLoading(true);
-    setError('');
+    setSaveLoading(true); setError('');
     try {
       const fieldsToSave = {};
       ALL_FIELD_KEYS.forEach((key) => {
         const v = editedFields[key];
-        if (v !== '' && v !== null && v !== undefined) {
+        if (v !== '' && v !== null && v !== undefined)
           fieldsToSave[key] = FIELD_META[key].type === 'number' ? parseFloat(v) || v : v;
-        }
       });
       const res = await invoiceAPI.updateFields(id, fieldsToSave);
       setInvoice(res.data.data);
       setChangedKeys(new Set());
     } catch (err) {
       setError(err.response?.data?.message || 'Save failed');
-    } finally {
-      setSaveLoading(false);
-    }
+    } finally { setSaveLoading(false); }
   };
 
   const handleMatch = async () => {
-    setMatchLoading(true);
-    setError('');
+    setMatchLoading(true); setError('');
     try {
-      // Save current edits first, then run matching
       const fieldsToSave = {};
       ALL_FIELD_KEYS.forEach((key) => {
         const v = editedFields[key];
-        if (v !== '' && v !== null && v !== undefined) {
+        if (v !== '' && v !== null && v !== undefined)
           fieldsToSave[key] = FIELD_META[key].type === 'number' ? parseFloat(v) || v : v;
-        }
       });
-      if (changedKeys.size > 0) {
-        await invoiceAPI.updateFields(id, fieldsToSave);
-      }
+      if (changedKeys.size > 0) await invoiceAPI.updateFields(id, fieldsToSave);
       const res = await invoiceAPI.submitMatching(id);
       setInvoice(res.data.data);
       setChangedKeys(new Set());
     } catch (err) {
       setError(err.response?.data?.message || 'Matching failed');
-    } finally {
-      setMatchLoading(false);
-    }
+    } finally { setMatchLoading(false); }
   };
 
   const handleReject = async () => {
@@ -252,10 +226,10 @@ export default function InvoiceDetail() {
 
   if (loading && !invoice) return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
+      <div className="animate-spin w-7 h-7 border-[3px] border-amber-500 border-t-transparent rounded-full" />
     </div>
   );
-  if (!invoice) return <div className="text-center text-gray-400 py-20">Invoice not found</div>;
+  if (!invoice) return <div className="text-center text-ivory-500 py-20">Invoice not found</div>;
 
   const ext = invoice.extractedData || {};
   const po = invoice.purchaseOrder;
@@ -264,68 +238,95 @@ export default function InvoiceDetail() {
   const requiredFields = vendor?.requiredFields?.length ? vendor.requiredFields : [];
   const requiredKeys = requiredFields.map((f) => f.fieldKey);
   const otherKeys = ALL_FIELD_KEYS.filter((k) => !requiredKeys.includes(k));
-
   const showSplitView = ['ocr_extracted', 'pending_review', 'review_required'].includes(invoice.status);
-  // Statuses that are handled by explicit blocks below
   const knownStatuses = ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'];
   const isUnknownStatus = !knownStatuses.includes(invoice.status);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Compact header */}
-      <div className="flex items-center justify-between px-1 pb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <Link to="/invoices" className="text-gray-400 hover:text-gray-600 text-sm">← Back</Link>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{invoice.invoiceNumber || invoice.uploadedFile?.originalName || 'Invoice'}</h1>
-            <p className="text-xs text-gray-400">{invoice.uploadedFile?.originalName} · {invoice.uploadedFile?.size ? `${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : ''}</p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link to="/invoices" className="text-ivory-500 hover:text-ink-800 text-sm flex items-center gap-1 flex-shrink-0 transition-colors">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" /></svg>
+            Invoices
+          </Link>
+          <span className="text-ivory-300">/</span>
+          <div className="min-w-0">
+            <h1 className="font-serif text-xl font-bold text-ink-900 truncate">
+              {invoice.invoiceNumber || invoice.uploadedFile?.originalName || 'Invoice'}
+            </h1>
+            <p className="text-xs text-ivory-500 truncate">
+              {invoice.uploadedFile?.originalName}
+              {invoice.uploadedFile?.size ? ` · ${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : ''}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <StatusBar status={invoice.status} />
-          <span className={`${getStatusBadge(invoice.status)} ml-4`}>{invoice.status.replace(/_/g, ' ')}</span>
-          <button onClick={() => setShowLog(!showLog)} className="btn-secondary text-xs">
-            {showLog ? 'Hide Log' : 'Log'}
+          <span className={`${getStatusBadge(invoice.status)} flex-shrink-0`}>{invoice.status.replace(/_/g, ' ')}</span>
+          <button
+            onClick={() => setShowLog(!showLog)}
+            className="btn-ghost text-xs px-2 py-1"
+            title="Processing log"
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" clipRule="evenodd" />
+            </svg>
+            Log
           </button>
         </div>
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex-shrink-0">
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2 flex-shrink-0">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 flex-shrink-0">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
           {error}
         </div>
       )}
 
-      {/* Duplicate invoice alert — shown across all states */}
+      {/* Duplicate warning */}
       {vr.duplicateCheck?.isDuplicate && (
-        <div className="mb-3 p-4 bg-orange-50 border border-orange-300 rounded-xl flex items-start gap-3 flex-shrink-0">
-          <span className="text-2xl flex-shrink-0">⚠️</span>
+        <div className="mb-3 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-start gap-3 flex-shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
           <div>
-            <p className="font-semibold text-orange-800">Duplicate Invoice Detected</p>
-            <p className="text-sm text-orange-700 mt-0.5">
-              This invoice appears to be a duplicate of an existing record.
+            <p className="font-semibold text-orange-800 text-sm">Duplicate Invoice Detected</p>
+            <p className="text-xs text-orange-700 mt-0.5">
+              This appears to be a duplicate of an existing invoice.
               {vr.duplicateCheck.similarInvoiceId && (
-                <> Similar invoice ID: <span className="font-mono text-xs bg-orange-100 px-1 py-0.5 rounded ml-1">{String(vr.duplicateCheck.similarInvoiceId)}</span></>
+                <> Similar ID: <span className="font-mono bg-orange-100 px-1 rounded text-[10px]">{String(vr.duplicateCheck.similarInvoiceId)}</span></>
               )}
             </p>
           </div>
         </div>
       )}
 
-      {/* Processing log panel */}
+      {/* Processing log */}
       {showLog && (
-        <div className="mb-4 card max-h-48 overflow-y-auto flex-shrink-0">
-          <h3 className="font-semibold text-sm text-gray-700 mb-2">Processing Log</h3>
+        <div className="mb-4 bg-white border border-ivory-200 rounded-xl p-4 max-h-44 overflow-y-auto scrollbar-thin flex-shrink-0">
+          <h3 className="font-semibold text-xs uppercase tracking-wider text-ivory-500 mb-2">Processing Log</h3>
           <div className="space-y-1.5">
             {invoice.processingLog?.map((entry, i) => (
-              <div key={i} className={`flex gap-2 p-2 rounded text-xs ${
-                entry.status === 'error' ? 'bg-red-50' : entry.status === 'success' ? 'bg-green-50' : entry.status === 'warning' ? 'bg-yellow-50' : 'bg-gray-50'
+              <div key={i} className={`flex gap-2 p-2 rounded-lg text-xs ${
+                entry.status === 'error'   ? 'bg-red-50 text-red-800' :
+                entry.status === 'success' ? 'bg-emerald-50 text-emerald-800' :
+                entry.status === 'warning' ? 'bg-amber-50 text-amber-800' :
+                'bg-ivory-50 text-ivory-700'
               }`}>
-                <span>{entry.status === 'error' ? '❌' : entry.status === 'success' ? '✅' : entry.status === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                <span className="flex-shrink-0">{
+                  entry.status === 'error' ? '✕' :
+                  entry.status === 'success' ? '✓' :
+                  entry.status === 'warning' ? '⚠' : 'ℹ'
+                }</span>
                 <div>
-                  <span className="font-medium">{entry.action}</span>
-                  <span className="text-gray-500 ml-1">— {entry.details}</span>
-                  <span className="text-gray-300 ml-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                  <span className="font-semibold">{entry.action}</span>
+                  <span className="opacity-70 ml-1">— {entry.details}</span>
+                  <span className="opacity-40 ml-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
                 </div>
               </div>
             ))}
@@ -333,168 +334,127 @@ export default function InvoiceDetail() {
         </div>
       )}
 
-      {/* PROCESSING / UNKNOWN STATUS — catch-all for legacy statuses like "processing", "validated" etc. */}
+      {/* ── Unknown status ── */}
       {isUnknownStatus && (
         <div className="flex-1 space-y-4">
-          <div className="p-6 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-6">
-            <div className="w-14 h-14 flex items-center justify-center">
-              <div className="animate-spin w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+          <div className="p-6 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-5">
+            <div className="w-10 h-10 flex items-center justify-center">
+              <div className="animate-spin w-8 h-8 border-[3px] border-blue-500 border-t-transparent rounded-full" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-blue-800 capitalize">{invoice.status.replace(/_/g, ' ')}</h2>
-              <p className="text-blue-600 mt-1 text-sm">
-                This invoice is being processed. Refresh the page in a moment to see the latest status.
-              </p>
+              <h2 className="font-serif text-xl font-bold text-blue-800 capitalize">{invoice.status.replace(/_/g, ' ')}</h2>
+              <p className="text-blue-600 mt-0.5 text-sm">Processing in progress. Refresh to check status.</p>
             </div>
           </div>
-
-          {/* File info */}
-          <div className="card text-sm space-y-2">
-            <h3 className="font-semibold text-gray-700 mb-2">Invoice Details</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                ['File', invoice.uploadedFile?.originalName],
-                ['Type', invoice.uploadedFile?.mimetype],
-                ['Size', invoice.uploadedFile?.size ? `${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : '—'],
-                ['Uploaded', invoice.createdAt ? new Date(invoice.createdAt).toLocaleString() : '—'],
-                ['Vendor', vendor?.name],
-                ['PO', po?.poNumber],
-              ].map(([label, val]) => val ? (
-                <div key={label} className="flex justify-between border-b border-gray-50 py-1">
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-medium text-gray-800">{val}</span>
-                </div>
-              ) : null)}
-            </div>
-          </div>
-
-          {/* Show processing log if available */}
-          {invoice.processingLog?.length > 0 && (
-            <div className="card">
-              <h3 className="font-semibold text-gray-700 text-sm mb-2">Processing Log</h3>
-              <div className="space-y-1.5">
-                {invoice.processingLog.map((entry, i) => (
-                  <div key={i} className={`flex gap-2 p-2 rounded text-xs ${
-                    entry.status === 'error' ? 'bg-red-50' : entry.status === 'success' ? 'bg-green-50' : entry.status === 'warning' ? 'bg-yellow-50' : 'bg-gray-50'
-                  }`}>
-                    <span>{entry.status === 'error' ? '❌' : entry.status === 'success' ? '✅' : entry.status === 'warning' ? '⚠️' : 'ℹ️'}</span>
-                    <div>
-                      <span className="font-medium">{entry.action}</span>
-                      <span className="text-gray-500 ml-1">— {entry.details}</span>
-                      <span className="text-gray-300 ml-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* If OCR already extracted some data, show it */}
-          {invoice.extractedData && Object.values(invoice.extractedData).some(v => v?.value) && (
-            <div className="card text-sm space-y-2">
-              <h3 className="font-semibold text-gray-700 mb-2">Extracted Data (so far)</h3>
-              <div className="space-y-1">
-                {ALL_FIELD_KEYS.map((key) => {
-                  const val = getExtracted(ext, key);
-                  const conf = getConfidence(ext, key);
-                  if (!val) return null;
-                  return (
-                    <div key={key} className="flex justify-between items-center py-1 border-b border-gray-50">
-                      <span className="text-gray-500">{FIELD_META[key]?.label}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="font-medium text-gray-800">{String(val)}</span>
-                        <ConfidenceDot value={conf} />
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <button onClick={load} className="btn-secondary text-sm">
-            🔄 Refresh Status
-          </button>
+          <button onClick={load} className="btn-secondary text-sm">↺ Refresh</button>
         </div>
       )}
 
-      {/* UPLOADED STATE */}
+      {/* ── UPLOADED ── */}
       {invoice.status === 'uploaded' && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-sm space-y-6">
-            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto text-4xl">📄</div>
+        <div className="flex-1 flex items-center justify-center py-8">
+          <div className="text-center max-w-sm w-full space-y-6">
+            <div className="w-20 h-20 bg-ivory-100 border-2 border-dashed border-ivory-300 rounded-2xl flex items-center justify-center mx-auto">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-9 h-9 text-ivory-400">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+              </svg>
+            </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-800">Invoice Ready for Processing</h2>
-              <p className="text-gray-500 text-sm mt-2">
-                Click below to run OCR and extract invoice data. The system will identify all fields based on this vendor's requirements.
+              <h2 className="font-serif text-2xl font-bold text-ink-900">Ready to Process</h2>
+              <p className="text-ivory-600 text-sm mt-2 leading-relaxed">
+                Click below to run OCR and extract all invoice data. The system will identify fields based on this vendor's requirements.
               </p>
             </div>
-            <div className="card text-left text-sm space-y-2">
-              <div className="flex justify-between"><span className="text-gray-500">File</span><span className="font-medium">{invoice.uploadedFile?.originalName}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Type</span><span>{invoice.uploadedFile?.mimetype}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Size</span><span>{invoice.uploadedFile?.size ? `${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : '—'}</span></div>
-              {vendor && <div className="flex justify-between"><span className="text-gray-500">Vendor</span><span className="font-medium">{vendor.name}</span></div>}
-              {po && <div className="flex justify-between"><span className="text-gray-500">PO</span><span className="font-medium">{po.poNumber}</span></div>}
+
+            <div className="bg-white border border-ivory-200 rounded-xl p-4 text-left text-sm space-y-2">
+              {[
+                ['File', invoice.uploadedFile?.originalName],
+                ['Type', invoice.uploadedFile?.mimetype],
+                ['Size', invoice.uploadedFile?.size ? `${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : null],
+                ['Vendor', vendor?.name],
+                ['PO', po?.poNumber],
+              ].filter(([, v]) => v).map(([label, val]) => (
+                <div key={label} className="flex justify-between border-b border-ivory-100 pb-2 last:border-0 last:pb-0">
+                  <span className="text-ivory-500">{label}</span>
+                  <span className="font-medium text-ink-800 font-mono text-xs truncate ml-3 max-w-[180px]">{val}</span>
+                </div>
+              ))}
               {vendor?.requiredFields?.length > 0 && (
-                <div className="pt-2 border-t border-gray-100">
-                  <span className="text-gray-500 text-xs block mb-1">Fields to extract:</span>
+                <div className="pt-2 border-t border-ivory-100">
+                  <span className="text-xs font-bold uppercase tracking-wide text-ivory-500 block mb-2">Fields to extract</span>
                   <div className="flex flex-wrap gap-1">
                     {vendor.requiredFields.map((f) => (
-                      <span key={f.fieldKey} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{f.fieldLabel}</span>
+                      <span key={f.fieldKey} className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-medium">{f.fieldLabel}</span>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-            <button onClick={handleOCR} disabled={ocrLoading} className="btn-primary w-full text-base py-3">
+
+            <button onClick={handleOCR} disabled={ocrLoading} className="btn-primary w-full py-3 text-base">
               {ocrLoading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  Running OCR...
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Running OCR…
                 </span>
-              ) : 'Start OCR Processing'}
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
+                  </svg>
+                  Start OCR Processing
+                </span>
+              )}
             </button>
           </div>
         </div>
       )}
 
-      {/* SPLIT VIEW — ocr_extracted, pending_review, review_required */}
+      {/* ── SPLIT VIEW (ocr_extracted, pending_review, review_required) ── */}
       {showSplitView && (
-        <div className="flex-1 flex gap-4 min-h-0">
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
           {/* Left: file preview */}
-          <div className="w-1/2 rounded-xl border border-gray-200 overflow-hidden bg-gray-50 flex-shrink-0" style={{ minHeight: '500px' }}>
-            <div className="bg-gray-100 border-b border-gray-200 px-3 py-2 text-xs text-gray-500 font-medium flex items-center gap-2">
-              <span>📄</span> {invoice.uploadedFile?.originalName}
+          <div className="lg:w-1/2 rounded-xl border border-ivory-300 overflow-hidden bg-ivory-100 flex-shrink-0 flex flex-col" style={{ minHeight: '400px' }}>
+            <div className="bg-white border-b border-ivory-200 px-3 py-2 text-xs text-ivory-500 font-medium flex items-center gap-2 flex-shrink-0">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-ivory-400">
+                <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.379 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
+              </svg>
+              {invoice.uploadedFile?.originalName}
             </div>
-            <div className="h-full" style={{ height: 'calc(100% - 33px)' }}>
+            <div className="flex-1" style={{ minHeight: 0 }}>
               <FilePreview invoice={invoice} />
             </div>
           </div>
 
-          {/* Right: extracted fields form */}
-          <div className="w-1/2 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+          {/* Right: extracted fields */}
+          <div className="lg:w-1/2 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-3 pr-1">
 
-              {/* Match result banner when review_required */}
+              {/* Review required banner */}
               {invoice.status === 'review_required' && (
                 <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-orange-800">Review Required — {vr.matchScore}% match</h3>
-                    <span className="text-2xl">⚠️</span>
+                    <h3 className="font-serif font-bold text-orange-800 text-base">Review Required — {vr.matchScore}% match</h3>
+                    <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded border border-orange-200">
+                      {vr.discrepancies?.length} issue{vr.discrepancies?.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
-                  <p className="text-sm text-orange-700 mb-3">{vr.discrepancies?.length} discrepanc{vr.discrepancies?.length === 1 ? 'y' : 'ies'} found. Correct the fields below or reject this invoice.</p>
+                  <p className="text-sm text-orange-700 mb-3">Correct the fields below or reject this invoice.</p>
                   <div className="space-y-2">
                     {vr.discrepancies?.map((d, i) => (
-                      <div key={i} className="flex items-start gap-2 text-sm bg-white rounded-lg p-2 border border-orange-100">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium flex-shrink-0 ${
-                          d.severity === 'high' ? 'bg-red-100 text-red-700' : d.severity === 'medium' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
-                        }`}>{d.severity}</span>
-                        <div>
-                          <span className="font-medium capitalize">{FIELD_META[d.field]?.label || d.field}</span>
-                          <span className="text-gray-500">: expected </span>
-                          <span className="text-green-700 font-mono text-xs">{String(d.expected ?? '—')}</span>
-                          <span className="text-gray-500">, got </span>
-                          <span className="text-red-700 font-mono text-xs">{String(d.actual ?? '—')}</span>
+                      <div key={i} className="flex items-start gap-2 text-sm bg-white rounded-lg p-2.5 border border-orange-100">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0 mt-0.5 ${
+                          d.severity === 'high' ? 'bg-red-100 text-red-700' :
+                          d.severity === 'medium' ? 'bg-orange-100 text-orange-700' :
+                          'bg-ivory-100 text-ivory-600'
+                        }`}>{d.severity?.toUpperCase()}</span>
+                        <div className="text-xs">
+                          <span className="font-semibold text-ink-800">{FIELD_META[d.field]?.label || d.field}</span>
+                          <span className="text-ivory-500">: expected </span>
+                          <span className="text-emerald-700 font-mono">{String(d.expected ?? '—')}</span>
+                          <span className="text-ivory-500">, got </span>
+                          <span className="text-red-700 font-mono">{String(d.actual ?? '—')}</span>
                         </div>
                       </div>
                     ))}
@@ -502,25 +462,30 @@ export default function InvoiceDetail() {
                 </div>
               )}
 
-              {/* Vendor info */}
+              {/* Vendor/PO info pill */}
               {vendor && (
-                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-sm flex items-center justify-between">
-                  <div>
-                    <span className="text-gray-500">Vendor: </span>
-                    <span className="font-medium">{vendor.name}</span>
-                    {po && <><span className="text-gray-400 mx-2">·</span><span className="text-gray-500">PO: </span><span className="font-medium">{po.poNumber}</span></>}
+                <div className="flex items-center justify-between px-3 py-2 bg-white border border-ivory-200 rounded-lg text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-ivory-500 text-xs">Vendor</span>
+                    <span className="font-semibold text-ink-800">{vendor.name}</span>
+                    {po && (
+                      <>
+                        <span className="text-ivory-300">·</span>
+                        <span className="text-ivory-500 text-xs">PO</span>
+                        <span className="font-mono text-xs font-bold text-ink-800">{po.poNumber}</span>
+                      </>
+                    )}
                   </div>
-                  <span className="text-xs text-gray-400">{requiredKeys.length} required fields</span>
+                  <span className="text-xs text-ivory-400">{requiredKeys.length} required</span>
                 </div>
               )}
 
-              {/* Required fields (from vendor config) */}
+              {/* Required fields */}
               {requiredKeys.length > 0 && (
-                <div className="card space-y-3">
-                  <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    Required Fields
-                    <span className="text-xs text-gray-400 font-normal">— Edit if OCR is incorrect</span>
+                <div className="bg-white border border-ivory-200 rounded-xl p-4 space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-ivory-600 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                    Required Fields — edit if OCR is wrong
                   </h3>
                   {requiredKeys.map((key) => {
                     const meta = FIELD_META[key] || { label: key, type: 'text' };
@@ -528,18 +493,27 @@ export default function InvoiceDetail() {
                     const isChanged = changedKeys.has(key);
                     const hasDiscrepancy = vr.discrepancies?.some((d) => d.field === key);
                     return (
-                      <div key={key} className={`rounded-lg border p-3 ${hasDiscrepancy ? 'border-red-300 bg-red-50' : isChanged ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'}`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{meta.label} *</label>
-                          <div className="flex items-center gap-2">
-                            {isChanged && <span className="text-xs text-yellow-600 font-medium">edited</span>}
-                            {hasDiscrepancy && <span className="text-xs text-red-600 font-medium">mismatch</span>}
+                      <div key={key} className={`rounded-lg border p-3 transition-colors ${
+                        hasDiscrepancy ? 'border-red-300 bg-red-50' :
+                        isChanged ? 'border-amber-300 bg-amber-50' :
+                        'border-ivory-200'
+                      }`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-wide text-ivory-600">
+                            {meta.label} <span className="text-amber-500">*</span>
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            {isChanged && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1 rounded">edited</span>}
+                            {hasDiscrepancy && <span className="text-[10px] font-semibold text-red-600 bg-red-100 px-1 rounded">mismatch</span>}
                             <ConfidenceDot value={conf} />
                           </div>
                         </div>
                         <input
-                          type={meta.type === 'number' ? 'text' : 'text'}
-                          className={`input text-sm ${hasDiscrepancy ? 'border-red-300 focus:ring-red-400' : isChanged ? 'border-yellow-300 focus:ring-yellow-400' : ''}`}
+                          type="text"
+                          className={`input text-sm font-mono ${
+                            hasDiscrepancy ? 'border-red-300 focus:ring-red-300' :
+                            isChanged ? 'border-amber-300 focus:ring-amber-300' : ''
+                          }`}
                           value={editedFields[key] ?? ''}
                           onChange={(e) => handleFieldChange(key, e.target.value)}
                           placeholder={`Enter ${meta.label.toLowerCase()}`}
@@ -550,31 +524,32 @@ export default function InvoiceDetail() {
                 </div>
               )}
 
-              {/* Other extracted fields (optional, collapsible) */}
-              <details className="card">
-                <summary className="font-semibold text-gray-700 text-sm cursor-pointer select-none">
-                  Other Extracted Fields <span className="text-gray-400 font-normal text-xs">(click to expand)</span>
+              {/* Other fields (collapsible) */}
+              <details className="bg-white border border-ivory-200 rounded-xl">
+                <summary className="px-4 py-3 text-sm font-semibold text-ivory-700 cursor-pointer select-none hover:text-ink-900 transition-colors">
+                  Other Extracted Fields
+                  <span className="text-ivory-400 font-normal text-xs ml-1">(click to expand)</span>
                 </summary>
-                <div className="mt-3 space-y-2">
+                <div className="px-4 pb-4 space-y-2 border-t border-ivory-100 pt-3">
                   {otherKeys.map((key) => {
                     const meta = FIELD_META[key] || { label: key, type: 'text' };
                     const conf = getConfidence(ext, key);
                     const isChanged = changedKeys.has(key);
                     return (
-                      <div key={key} className={`rounded-lg border p-2.5 ${isChanged ? 'border-yellow-300 bg-yellow-50' : 'border-gray-100'}`}>
+                      <div key={key} className={`rounded-lg border p-2.5 ${isChanged ? 'border-amber-300 bg-amber-50' : 'border-ivory-100'}`}>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs text-gray-500">{meta.label}</label>
+                          <label className="text-[10px] font-semibold uppercase tracking-wide text-ivory-500">{meta.label}</label>
                           <div className="flex items-center gap-1">
-                            {isChanged && <span className="text-xs text-yellow-600">edited</span>}
+                            {isChanged && <span className="text-[10px] text-amber-600 font-semibold">edited</span>}
                             <ConfidenceDot value={conf} />
                           </div>
                         </div>
                         <input
                           type="text"
-                          className={`input text-sm ${isChanged ? 'border-yellow-300' : ''}`}
+                          className={`input text-sm font-mono py-1.5 ${isChanged ? 'border-amber-300' : ''}`}
                           value={editedFields[key] ?? ''}
                           onChange={(e) => handleFieldChange(key, e.target.value)}
-                          placeholder={`—`}
+                          placeholder="—"
                         />
                       </div>
                     );
@@ -582,21 +557,22 @@ export default function InvoiceDetail() {
                 </div>
               </details>
 
-              {/* Field change history */}
+              {/* Change history */}
               {invoice.fieldChanges?.length > 0 && (
-                <details className="card">
-                  <summary className="font-semibold text-gray-700 text-sm cursor-pointer select-none">
+                <details className="bg-white border border-ivory-200 rounded-xl">
+                  <summary className="px-4 py-3 text-sm font-semibold text-ivory-700 cursor-pointer select-none hover:text-ink-900 transition-colors">
                     Change History ({invoice.fieldChanges.length})
                   </summary>
-                  <div className="mt-3 space-y-2">
+                  <div className="px-4 pb-4 space-y-1.5 border-t border-ivory-100 pt-3">
                     {invoice.fieldChanges.map((c, i) => (
-                      <div key={i} className="text-xs flex gap-2 items-start p-2 bg-gray-50 rounded">
-                        <span className="text-gray-400 flex-shrink-0">{new Date(c.changedAt).toLocaleString()}</span>
+                      <div key={i} className="text-xs flex gap-2 items-start p-2 bg-ivory-50 rounded-lg border border-ivory-100">
+                        <span className="text-ivory-400 flex-shrink-0 font-mono">{new Date(c.changedAt).toLocaleString()}</span>
                         <span>
-                          <span className="font-medium">{FIELD_META[c.field]?.label || c.field}</span>:
-                          <span className="text-red-600 line-through mx-1">{c.oldValue || '—'}</span>→
-                          <span className="text-green-700 mx-1">{c.newValue}</span>
-                          {c.changedBy?.name && <span className="text-gray-400">by {c.changedBy.name}</span>}
+                          <span className="font-semibold text-ink-800">{FIELD_META[c.field]?.label || c.field}</span>:
+                          <span className="text-red-500 line-through mx-1 font-mono">{c.oldValue || '—'}</span>
+                          <span className="text-ivory-400">→</span>
+                          <span className="text-emerald-600 mx-1 font-mono">{c.newValue}</span>
+                          {c.changedBy?.name && <span className="text-ivory-400">by {c.changedBy.name}</span>}
                         </span>
                       </div>
                     ))}
@@ -605,8 +581,8 @@ export default function InvoiceDetail() {
               )}
             </div>
 
-            {/* Action buttons — fixed at bottom of right panel */}
-            <div className="flex-shrink-0 pt-3 border-t border-gray-200 space-y-2">
+            {/* Action buttons */}
+            <div className="flex-shrink-0 pt-3 border-t border-ivory-200 space-y-2 mt-2">
               {invoice.status === 'review_required' && (
                 <>
                   {!showRejectInput ? (
@@ -629,178 +605,175 @@ export default function InvoiceDetail() {
                   )}
                 </>
               )}
-
               <div className="flex gap-2">
                 {changedKeys.size > 0 && (
                   <button onClick={handleSave} disabled={saveLoading} className="btn-secondary flex-1 text-sm">
-                    {saveLoading ? 'Saving...' : `Save Changes (${changedKeys.size})`}
+                    {saveLoading ? 'Saving…' : `Save (${changedKeys.size})`}
                   </button>
                 )}
-                <button
-                  onClick={handleMatch}
-                  disabled={matchLoading}
-                  className="btn-primary flex-1 text-sm"
-                >
+                <button onClick={handleMatch} disabled={matchLoading} className="btn-primary flex-1 text-sm">
                   {matchLoading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      Matching...
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Matching…
                     </span>
                   ) : invoice.status === 'review_required' ? 'Re-run Matching' : 'Submit for Matching'}
                 </button>
               </div>
-
-              <p className="text-xs text-gray-400 text-center">
-                Unsaved edits will be saved automatically before matching runs
-              </p>
+              <p className="text-[10px] text-ivory-400 text-center">Unsaved edits are saved automatically before matching</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* PASSED STATE */}
+      {/* ── PASSED ── */}
       {invoice.status === 'passed' && (
-        <div className="flex-1 space-y-6">
-          <div className="p-6 bg-green-50 border border-green-200 rounded-xl flex items-center gap-6">
-            <div className="text-5xl">✅</div>
+        <div className="flex-1 space-y-5">
+          <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-5">
+            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6 text-emerald-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
             <div>
-              <h2 className="text-2xl font-bold text-green-800">Invoice Passed</h2>
-              <p className="text-green-700 mt-1">All checks passed. Match score: <strong>{vr.matchScore}%</strong></p>
-              {vr.duplicateCheck?.isDuplicate && <p className="text-orange-600 text-sm mt-1">⚠️ Duplicate was detected</p>}
+              <h2 className="font-serif text-2xl font-bold text-emerald-800">Invoice Passed</h2>
+              <p className="text-emerald-700 mt-0.5 text-sm">All checks passed. Match score: <span className="font-mono font-bold">{vr.matchScore}%</span></p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
-            <div className="card space-y-3">
-              <h3 className="font-semibold text-gray-800">Verified Data</h3>
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-50">
-                  {ALL_FIELD_KEYS.map((key) => {
-                    const val = invoice.userVerifiedData?.[key] ?? getExtracted(ext, key);
-                    if (!val) return null;
-                    return (
-                      <tr key={key}>
-                        <td className="py-2 text-gray-500 w-1/2">{FIELD_META[key]?.label}</td>
-                        <td className="py-2 font-medium text-gray-900">{String(val)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="card">
+              <h3 className="font-serif font-bold text-ink-900 mb-3">Verified Data</h3>
+              <div className="space-y-1.5">
+                {ALL_FIELD_KEYS.map((key) => {
+                  const val = invoice.userVerifiedData?.[key] ?? getExtracted(ext, key);
+                  if (!val) return null;
+                  return (
+                    <div key={key} className="flex justify-between py-1.5 border-b border-ivory-100 last:border-0 text-sm">
+                      <span className="text-ivory-600">{FIELD_META[key]?.label}</span>
+                      <span className="font-mono font-medium text-ink-900 text-right ml-3 truncate">{String(val)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-
             {po && (
-              <div className="card space-y-3">
-                <h3 className="font-semibold text-gray-800">
-                  Purchase Order —{' '}
-                  <Link to={`/purchase-orders/${po._id}`} className="text-blue-600 hover:underline">{po.poNumber}</Link>
+              <div className="card">
+                <h3 className="font-serif font-bold text-ink-900 mb-3">
+                  Purchase Order — <Link to={`/purchase-orders/${po._id}`} className="text-amber-600 hover:underline font-mono text-base">{po.poNumber}</Link>
                 </h3>
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-gray-50">
-                    {[
-                      ['Vendor', po.vendor?.name],
-                      ['Total Amount', po.totalAmount != null ? `${po.currency || ''} ${Number(po.totalAmount).toFixed(2)}` : null],
-                      ['Subtotal', po.subTotal != null ? Number(po.subTotal).toFixed(2) : null],
-                      ['Tax', po.tax != null ? Number(po.tax).toFixed(2) : null],
-                      ['Status', po.status],
-                    ].map(([label, val]) => val ? (
-                      <tr key={label}>
-                        <td className="py-2 text-gray-500">{label}</td>
-                        <td className="py-2 font-medium">{val}</td>
-                      </tr>
-                    ) : null)}
-                  </tbody>
-                </table>
+                <div className="space-y-1.5">
+                  {[
+                    ['Vendor', po.vendor?.name],
+                    ['Total Amount', po.totalAmount != null ? `${po.currency || ''} ${Number(po.totalAmount).toFixed(2)}` : null],
+                    ['Subtotal', po.subTotal != null ? Number(po.subTotal).toFixed(2) : null],
+                    ['Tax', po.tax != null ? Number(po.tax).toFixed(2) : null],
+                    ['Status', po.status],
+                  ].filter(([, v]) => v).map(([label, val]) => (
+                    <div key={label} className="flex justify-between py-1.5 border-b border-ivory-100 last:border-0 text-sm">
+                      <span className="text-ivory-600">{label}</span>
+                      <span className="font-mono font-medium text-ink-900">{val}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
           {invoice.fieldChanges?.length > 0 && (
             <div className="card">
-              <h3 className="font-semibold text-gray-800 mb-3">User Corrections ({invoice.fieldChanges.length})</h3>
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Field</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Original OCR</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Corrected To</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">By</th>
-                </tr></thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoice.fieldChanges.map((c, i) => (
-                    <tr key={i}>
-                      <td className="py-2 px-3 font-medium">{FIELD_META[c.field]?.label || c.field}</td>
-                      <td className="py-2 px-3 text-red-600 line-through">{c.oldValue || '—'}</td>
-                      <td className="py-2 px-3 text-green-700">{c.newValue}</td>
-                      <td className="py-2 px-3 text-gray-400 text-xs">{c.changedBy?.name || '—'}</td>
+              <h3 className="font-serif font-bold text-ink-900 mb-3">User Corrections ({invoice.fieldChanges.length})</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="bg-ivory-50 text-left text-[10px] font-bold uppercase tracking-wide text-ivory-500">
+                      <th className="py-2 px-3">Field</th>
+                      <th className="py-2 px-3">OCR Value</th>
+                      <th className="py-2 px-3">Corrected To</th>
+                      <th className="py-2 px-3">By</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-ivory-100">
+                    {invoice.fieldChanges.map((c, i) => (
+                      <tr key={i}>
+                        <td className="py-2 px-3 font-semibold text-ink-800">{FIELD_META[c.field]?.label || c.field}</td>
+                        <td className="py-2 px-3 text-red-500 line-through font-mono text-xs">{c.oldValue || '—'}</td>
+                        <td className="py-2 px-3 text-emerald-700 font-mono text-xs">{c.newValue}</td>
+                        <td className="py-2 px-3 text-ivory-400 text-xs">{c.changedBy?.name || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* REJECTED STATE */}
+      {/* ── REJECTED ── */}
       {invoice.status === 'rejected' && (
-        <div className="flex-1 space-y-6">
-          <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex items-center gap-6">
-            <div className="text-5xl">❌</div>
+        <div className="flex-1 space-y-5">
+          <div className="p-5 bg-red-50 border border-red-200 rounded-xl flex items-center gap-5">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6 text-red-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
             <div>
-              <h2 className="text-2xl font-bold text-red-800">Invoice Rejected</h2>
-              <p className="text-red-700 mt-1">
-                {invoice.processingLog?.filter((l) => l.action === 'Invoice Rejected').slice(-1)[0]?.details || 'This invoice was rejected'}
+              <h2 className="font-serif text-2xl font-bold text-red-800">Invoice Rejected</h2>
+              <p className="text-red-700 mt-0.5 text-sm">
+                {invoice.processingLog?.filter((l) => l.action === 'Invoice Rejected').slice(-1)[0]?.details || 'Manually rejected'}
               </p>
             </div>
           </div>
 
           {vr.discrepancies?.length > 0 && (
             <div className="card">
-              <h3 className="font-semibold text-gray-800 mb-3">Discrepancies Found</h3>
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Field</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Expected</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Found</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Severity</th>
-                </tr></thead>
-                <tbody className="divide-y divide-gray-50">
-                  {vr.discrepancies.map((d, i) => (
-                    <tr key={i}>
-                      <td className="py-2 px-3 font-medium capitalize">{FIELD_META[d.field]?.label || d.field}</td>
-                      <td className="py-2 px-3 text-gray-600">{String(d.expected ?? '—')}</td>
-                      <td className="py-2 px-3 text-red-700 font-medium">{String(d.actual ?? '—')}</td>
-                      <td className="py-2 px-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          d.severity === 'high' ? 'bg-red-100 text-red-700' : d.severity === 'medium' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
-                        }`}>{d.severity}</span>
-                      </td>
+              <h3 className="font-serif font-bold text-ink-900 mb-3">Discrepancies Found</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="bg-ivory-50 text-left text-[10px] font-bold uppercase tracking-wide text-ivory-500">
+                      <th className="py-2 px-3">Field</th>
+                      <th className="py-2 px-3">Expected</th>
+                      <th className="py-2 px-3">Found</th>
+                      <th className="py-2 px-3">Severity</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-ivory-100">
+                    {vr.discrepancies.map((d, i) => (
+                      <tr key={i}>
+                        <td className="py-2 px-3 font-semibold capitalize">{FIELD_META[d.field]?.label || d.field}</td>
+                        <td className="py-2 px-3 text-ivory-600 font-mono text-xs">{String(d.expected ?? '—')}</td>
+                        <td className="py-2 px-3 text-red-700 font-mono text-xs font-medium">{String(d.actual ?? '—')}</td>
+                        <td className="py-2 px-3">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                            d.severity === 'high' ? 'bg-red-100 text-red-700' :
+                            d.severity === 'medium' ? 'bg-orange-100 text-orange-700' :
+                            'bg-ivory-100 text-ivory-600'
+                          }`}>{d.severity?.toUpperCase()}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
           {invoice.fieldChanges?.length > 0 && (
             <div className="card">
-              <h3 className="font-semibold text-gray-800 mb-3">User Edits Before Rejection</h3>
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">Field</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">OCR Value</th>
-                  <th className="text-left py-2 px-3 text-gray-500 text-xs">User Corrected To</th>
-                </tr></thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoice.fieldChanges.map((c, i) => (
-                    <tr key={i}>
-                      <td className="py-2 px-3 font-medium">{FIELD_META[c.field]?.label || c.field}</td>
-                      <td className="py-2 px-3 text-red-500 line-through">{c.oldValue || '—'}</td>
-                      <td className="py-2 px-3 text-gray-700">{c.newValue}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <h3 className="font-serif font-bold text-ink-900 mb-3">User Edits Before Rejection</h3>
+              <div className="space-y-1.5">
+                {invoice.fieldChanges.map((c, i) => (
+                  <div key={i} className="flex gap-3 text-xs py-1.5 border-b border-ivory-100 last:border-0">
+                    <span className="font-semibold text-ink-800 w-28 flex-shrink-0">{FIELD_META[c.field]?.label || c.field}</span>
+                    <span className="text-red-500 line-through font-mono">{c.oldValue || '—'}</span>
+                    <span className="text-ivory-400">→</span>
+                    <span className="text-ivory-700 font-mono">{c.newValue}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

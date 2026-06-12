@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -18,13 +19,18 @@ function PrivateRoute({ children }) {
   return user ? <Layout>{children}</Layout> : <Navigate to="/login" replace />;
 }
 
+function HomeRoute() {
+  const { user } = useAuth();
+  return user ? <Layout><Dashboard /></Layout> : <Landing />;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
   return (
     <Routes>
+      <Route path="/" element={<HomeRoute />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/register" element={user ? <Navigate to="/" replace /> : <Register />} />
-      <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
       <Route path="/vendors" element={<PrivateRoute><Vendors /></PrivateRoute>} />
       <Route path="/purchase-orders" element={<PrivateRoute><PurchaseOrders /></PrivateRoute>} />
       <Route path="/purchase-orders/new" element={<PrivateRoute><NewPurchaseOrder /></PrivateRoute>} />
