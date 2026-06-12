@@ -266,6 +266,9 @@ export default function InvoiceDetail() {
   const otherKeys = ALL_FIELD_KEYS.filter((k) => !requiredKeys.includes(k));
 
   const showSplitView = ['ocr_extracted', 'pending_review', 'review_required'].includes(invoice.status);
+  // Statuses that are handled by explicit blocks below
+  const knownStatuses = ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'];
+  const isUnknownStatus = !knownStatuses.includes(invoice.status);
 
   return (
     <div className="flex flex-col h-full">
@@ -293,6 +296,22 @@ export default function InvoiceDetail() {
         </div>
       )}
 
+      {/* Duplicate invoice alert — shown across all states */}
+      {vr.duplicateCheck?.isDuplicate && (
+        <div className="mb-3 p-4 bg-orange-50 border border-orange-300 rounded-xl flex items-start gap-3 flex-shrink-0">
+          <span className="text-2xl flex-shrink-0">⚠️</span>
+          <div>
+            <p className="font-semibold text-orange-800">Duplicate Invoice Detected</p>
+            <p className="text-sm text-orange-700 mt-0.5">
+              This invoice appears to be a duplicate of an existing record.
+              {vr.duplicateCheck.similarInvoiceId && (
+                <> Similar invoice ID: <span className="font-mono text-xs bg-orange-100 px-1 py-0.5 rounded ml-1">{String(vr.duplicateCheck.similarInvoiceId)}</span></>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Processing log panel */}
       {showLog && (
         <div className="mb-4 card max-h-48 overflow-y-auto flex-shrink-0">
@@ -311,6 +330,91 @@ export default function InvoiceDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* PROCESSING / UNKNOWN STATUS — catch-all for legacy statuses like "processing", "validated" etc. */}
+      {isUnknownStatus && (
+        <div className="flex-1 space-y-4">
+          <div className="p-6 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-6">
+            <div className="w-14 h-14 flex items-center justify-center">
+              <div className="animate-spin w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-blue-800 capitalize">{invoice.status.replace(/_/g, ' ')}</h2>
+              <p className="text-blue-600 mt-1 text-sm">
+                This invoice is being processed. Refresh the page in a moment to see the latest status.
+              </p>
+            </div>
+          </div>
+
+          {/* File info */}
+          <div className="card text-sm space-y-2">
+            <h3 className="font-semibold text-gray-700 mb-2">Invoice Details</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ['File', invoice.uploadedFile?.originalName],
+                ['Type', invoice.uploadedFile?.mimetype],
+                ['Size', invoice.uploadedFile?.size ? `${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : '—'],
+                ['Uploaded', invoice.createdAt ? new Date(invoice.createdAt).toLocaleString() : '—'],
+                ['Vendor', vendor?.name],
+                ['PO', po?.poNumber],
+              ].map(([label, val]) => val ? (
+                <div key={label} className="flex justify-between border-b border-gray-50 py-1">
+                  <span className="text-gray-500">{label}</span>
+                  <span className="font-medium text-gray-800">{val}</span>
+                </div>
+              ) : null)}
+            </div>
+          </div>
+
+          {/* Show processing log if available */}
+          {invoice.processingLog?.length > 0 && (
+            <div className="card">
+              <h3 className="font-semibold text-gray-700 text-sm mb-2">Processing Log</h3>
+              <div className="space-y-1.5">
+                {invoice.processingLog.map((entry, i) => (
+                  <div key={i} className={`flex gap-2 p-2 rounded text-xs ${
+                    entry.status === 'error' ? 'bg-red-50' : entry.status === 'success' ? 'bg-green-50' : entry.status === 'warning' ? 'bg-yellow-50' : 'bg-gray-50'
+                  }`}>
+                    <span>{entry.status === 'error' ? '❌' : entry.status === 'success' ? '✅' : entry.status === 'warning' ? '⚠️' : 'ℹ️'}</span>
+                    <div>
+                      <span className="font-medium">{entry.action}</span>
+                      <span className="text-gray-500 ml-1">— {entry.details}</span>
+                      <span className="text-gray-300 ml-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* If OCR already extracted some data, show it */}
+          {invoice.extractedData && Object.values(invoice.extractedData).some(v => v?.value) && (
+            <div className="card text-sm space-y-2">
+              <h3 className="font-semibold text-gray-700 mb-2">Extracted Data (so far)</h3>
+              <div className="space-y-1">
+                {ALL_FIELD_KEYS.map((key) => {
+                  const val = getExtracted(ext, key);
+                  const conf = getConfidence(ext, key);
+                  if (!val) return null;
+                  return (
+                    <div key={key} className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-500">{FIELD_META[key]?.label}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium text-gray-800">{String(val)}</span>
+                        <ConfidenceDot value={conf} />
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button onClick={load} className="btn-secondary text-sm">
+            🔄 Refresh Status
+          </button>
         </div>
       )}
 
@@ -342,11 +446,6 @@ export default function InvoiceDetail() {
                 </div>
               )}
             </div>
-            {vr.duplicateCheck?.isDuplicate && (
-              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-orange-700 text-sm">
-                ⚠️ This appears to be a duplicate invoice
-              </div>
-            )}
             <button onClick={handleOCR} disabled={ocrLoading} className="btn-primary w-full text-base py-3">
               {ocrLoading ? (
                 <span className="flex items-center justify-center gap-2">
