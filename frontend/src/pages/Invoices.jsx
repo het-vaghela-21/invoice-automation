@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { invoiceAPI } from '../services/api';
 import { formatDate, getStatusBadge, getScoreColor } from '../utils/helpers';
+import { usePageEntrance } from '../utils/motion';
 
 const FILTERS = [
   { key: '',               label: 'All' },
@@ -37,14 +38,15 @@ export default function Invoices() {
   };
 
   const pages = Math.ceil(total / LIMIT);
+  const pageRef = usePageEntrance(!loading);
 
   return (
-    <div className="space-y-5 max-w-full">
+    <div ref={pageRef} className="space-y-5 max-w-full">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-animate>
         <div>
-          <h1 className="font-serif text-2xl font-bold text-ink-900">Invoices</h1>
-          <p className="text-ivory-600 text-sm mt-0.5">{total} total invoice{total !== 1 ? 's' : ''}</p>
+          <h1 className="font-serif text-2xl font-bold text-ink-800">Invoices</h1>
+          <p className="text-ivory-700 text-sm mt-0.5" aria-live="polite">{total} total invoice{total !== 1 ? 's' : ''}</p>
         </div>
         <Link to="/upload" className="btn-primary self-start sm:self-auto">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
@@ -55,16 +57,13 @@ export default function Invoices() {
       </div>
 
       {/* Filter pills */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap" role="group" aria-label="Filter invoices by status" data-animate>
         {FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => { setStatusFilter(f.key); setPage(1); }}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-all duration-150 ${
-              statusFilter === f.key
-                ? 'bg-ink-900 text-white shadow-sm'
-                : 'bg-white text-ivory-700 border border-ivory-300 hover:border-ivory-400 hover:text-ink-900'
-            }`}
+            aria-pressed={statusFilter === f.key}
+            className={statusFilter === f.key ? 'pill-active' : 'pill'}
           >
             {f.label}
           </button>
@@ -72,13 +71,16 @@ export default function Invoices() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-ivory-300 shadow-card overflow-hidden">
+      <div className="bg-white rounded-xl border border-ivory-300 shadow-card overflow-hidden" data-animate>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[700px]">
+            <caption className="sr-only">List of invoices with vendor, match score, status and upload date</caption>
             <thead>
               <tr className="bg-ivory-100 border-b border-ivory-200">
-                {['Invoice #', 'File', 'Vendor', 'PO', 'Score', 'Status', 'Uploaded', ''].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">{h}</th>
+                {['Invoice #', 'File', 'Vendor', 'PO', 'Score', 'Status', 'Uploaded', 'Actions'].map((h) => (
+                  <th key={h} scope="col" className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">
+                    {h === 'Actions' ? <span className="sr-only">{h}</span> : h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -86,7 +88,7 @@ export default function Invoices() {
               {loading ? (
                 <tr>
                   <td colSpan={8} className="text-center py-16">
-                    <div className="flex items-center justify-center gap-2 text-ivory-500">
+                    <div className="flex items-center justify-center gap-2 text-ivory-600" role="status" aria-live="polite">
                       <div className="animate-spin w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full" />
                       Loading invoices…
                     </div>
@@ -94,46 +96,47 @@ export default function Invoices() {
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-16 text-ivory-500">
+                  <td colSpan={8} className="text-center py-16 text-ivory-700">
                     No invoices found.{' '}
-                    <Link to="/upload" className="text-amber-600 hover:text-amber-700 font-semibold">Upload one →</Link>
+                    <Link to="/upload" className="text-amber-800 hover:text-amber-900 font-semibold">Upload one →</Link>
                   </td>
                 </tr>
               ) : invoices.map((inv) => (
                 <tr key={inv._id} className="border-b border-ivory-100 hover:bg-ivory-50 transition-colors">
                   <td className="px-4 py-3.5">
-                    <Link to={`/invoices/${inv._id}`} className="font-mono text-amber-700 hover:text-amber-800 font-semibold text-xs">
+                    <Link to={`/invoices/${inv._id}`} className="font-mono text-amber-800 hover:text-amber-900 underline decoration-amber-300 underline-offset-2 font-semibold text-xs">
                       {inv.invoiceNumber || '—'}
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5 text-ivory-600 max-w-[140px]">
+                  <td className="px-4 py-3.5 text-ivory-700 max-w-[140px]">
                     <span className="truncate block text-xs" title={inv.uploadedFile?.originalName}>
                       {inv.uploadedFile?.originalName || '—'}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 font-medium text-ink-800 text-sm">{inv.vendor?.name || <span className="text-ivory-400">—</span>}</td>
+                  <td className="px-4 py-3.5 font-medium text-ivory-900 text-sm">{inv.vendor?.name || <span className="text-ivory-500" aria-label="No vendor">—</span>}</td>
                   <td className="px-4 py-3.5">
-                    <span className="font-mono text-xs text-ivory-600">{inv.purchaseOrder?.poNumber || '—'}</span>
+                    <span className="font-mono text-xs text-ivory-700">{inv.purchaseOrder?.poNumber || '—'}</span>
                   </td>
                   <td className="px-4 py-3.5">
                     {inv.validationResult?.matchScore != null ? (
                       <span className={`font-mono font-bold text-sm ${getScoreColor(inv.validationResult.matchScore)}`}>
                         {inv.validationResult.matchScore}%
                       </span>
-                    ) : <span className="text-ivory-300">—</span>}
+                    ) : <span className="text-ivory-500">—</span>}
                   </td>
                   <td className="px-4 py-3.5">
                     <span className={getStatusBadge(inv.status)}>{inv.status.replace(/_/g, ' ')}</span>
                   </td>
-                  <td className="px-4 py-3.5 text-xs text-ivory-500">{formatDate(inv.createdAt)}</td>
+                  <td className="px-4 py-3.5 text-xs text-ivory-700">{formatDate(inv.createdAt)}</td>
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-3">
-                      <Link to={`/invoices/${inv._id}`} className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors">
+                      <Link to={`/invoices/${inv._id}`} className="text-xs font-medium text-amber-800 hover:text-amber-900 transition-colors">
                         Open →
                       </Link>
                       <button
-                        className="text-xs text-ivory-400 hover:text-red-500 transition-colors"
+                        className="text-xs text-ivory-500 hover:text-red-700 transition-colors p-1 rounded"
                         onClick={() => handleDelete(inv._id)}
+                        aria-label={`Delete invoice ${inv.invoiceNumber || inv.uploadedFile?.originalName || ''}`}
                         title="Delete invoice"
                       >
                         <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -151,10 +154,10 @@ export default function Invoices() {
         {/* Pagination */}
         {pages > 1 && (
           <div className="px-4 py-3 border-t border-ivory-200 flex items-center justify-between bg-ivory-50">
-            <span className="text-xs text-ivory-500">
+            <span className="text-xs text-ivory-700">
               Page {page} of {pages} · {total} invoices
             </span>
-            <div className="flex gap-2">
+            <nav className="flex gap-2" aria-label="Invoice list pagination">
               <button
                 className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
                 disabled={page === 1}
@@ -165,7 +168,7 @@ export default function Invoices() {
                 disabled={page >= pages}
                 onClick={() => setPage((p) => p + 1)}
               >Next →</button>
-            </div>
+            </nav>
           </div>
         )}
       </div>

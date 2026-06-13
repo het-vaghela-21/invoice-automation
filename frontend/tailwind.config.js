@@ -38,11 +38,13 @@ export default {
           200: '#f5f2eb',
           300: '#ede9e0',
           400: '#e0dcd2',
-          500: '#cdc8bc',
-          600: '#b0aa9e',
-          700: '#8e897e',
-          800: '#6b6560',
-          900: '#4a4541',
+          /* 500+ are used as *text* colours on white/ivory surfaces, so they
+             are kept dark enough for WCAG AA contrast. */
+          500: '#7d7568',
+          600: '#675f53',
+          700: '#534c42',
+          800: '#3e3933',
+          900: '#2b2722',
         },
       },
       boxShadow: {

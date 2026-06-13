@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { invoiceAPI } from '../services/api';
 import { getStatusBadge, getScoreColor } from '../utils/helpers';
+import { usePageEntrance } from '../utils/motion';
 
 const FIELD_META = {
   vendorName:    { label: 'Vendor Name',    type: 'text' },
@@ -59,7 +60,7 @@ function ConfidenceDot({ value }) {
   if (!value) return null;
   const color = value >= 80 ? 'bg-emerald-400' : value >= 60 ? 'bg-amber-400' : 'bg-red-400';
   return (
-    <span className="flex items-center gap-1 text-xs text-ivory-400">
+    <span className="flex items-center gap-1 text-xs text-ivory-600">
       <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
       {value}%
     </span>
@@ -91,32 +92,33 @@ function StatusBar({ status }) {
   const currentIdx = order.indexOf(status);
 
   return (
-    <div className="hidden sm:flex items-center gap-0">
+    <ol className="hidden sm:flex items-center gap-0 list-none" aria-label="Invoice processing pipeline">
       {steps.map((step, i) => {
         const stepIdx = order.indexOf(step.key);
         const done = currentIdx > stepIdx;
         const active = status === step.key || (status === 'review_required' && step.key === 'pending_review');
         return (
           <React.Fragment key={step.key}>
-            <div className="flex flex-col items-center">
+            <li className="flex flex-col items-center" aria-current={active ? 'step' : undefined}>
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
-                done ? 'bg-amber-500 border-amber-500 text-white' :
-                active ? 'bg-white border-amber-500 text-amber-600' :
-                'bg-white border-ivory-300 text-ivory-400'
-              }`}>
+                done ? 'bg-ink-600 border-ink-600 text-white' :
+                active ? 'bg-white border-amber-600 text-amber-800' :
+                'bg-white border-ivory-400 text-ivory-600'
+              }`} aria-hidden="true">
                 {done ? '✓' : i + 1}
               </div>
-              <span className={`text-[10px] mt-0.5 font-medium ${active ? 'text-amber-600' : done ? 'text-amber-400' : 'text-ivory-400'}`}>
+              <span className={`text-[10px] mt-0.5 font-semibold ${active ? 'text-amber-800' : done ? 'text-ink-600' : 'text-ivory-600'}`}>
                 {step.label}
+                <span className="sr-only">{done ? ' (complete)' : active ? ' (current step)' : ''}</span>
               </span>
-            </div>
+            </li>
             {i < steps.length - 1 && (
-              <div className={`h-px flex-1 mx-1 mb-4 ${done ? 'bg-amber-400' : 'bg-ivory-300'}`} />
+              <li className={`h-px flex-1 mx-1 mb-4 min-w-[16px] ${done ? 'bg-ink-400' : 'bg-ivory-400'}`} aria-hidden="true" />
             )}
           </React.Fragment>
         );
       })}
-    </div>
+    </ol>
   );
 }
 
@@ -133,6 +135,7 @@ export default function InvoiceDetail() {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [error, setError] = useState('');
   const [showLog, setShowLog] = useState(false);
+  const pageRef = usePageEntrance(!loading && !!invoice);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -225,11 +228,12 @@ export default function InvoiceDetail() {
   };
 
   if (loading && !invoice) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin w-7 h-7 border-[3px] border-amber-500 border-t-transparent rounded-full" />
+    <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+      <div className="animate-spin w-7 h-7 border-[3px] border-amber-600 border-t-transparent rounded-full" aria-hidden="true" />
+      <span className="sr-only">Loading invoice…</span>
     </div>
   );
-  if (!invoice) return <div className="text-center text-ivory-500 py-20">Invoice not found</div>;
+  if (!invoice) return <div className="text-center text-ivory-700 py-20">Invoice not found</div>;
 
   const ext = invoice.extractedData || {};
   const po = invoice.purchaseOrder;
@@ -243,20 +247,20 @@ export default function InvoiceDetail() {
   const isUnknownStatus = !knownStatuses.includes(invoice.status);
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={pageRef} className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 flex-shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 flex-shrink-0" data-animate>
         <div className="flex items-center gap-3 min-w-0">
-          <Link to="/invoices" className="text-ivory-500 hover:text-ink-800 text-sm flex items-center gap-1 flex-shrink-0 transition-colors">
+          <Link to="/invoices" className="text-ivory-700 hover:text-ink-700 text-sm flex items-center gap-1 flex-shrink-0 transition-colors rounded">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" /></svg>
             Invoices
           </Link>
-          <span className="text-ivory-300">/</span>
+          <span className="text-ivory-400" aria-hidden="true">/</span>
           <div className="min-w-0">
-            <h1 className="font-serif text-xl font-bold text-ink-900 truncate">
+            <h1 className="font-serif text-xl font-bold text-ink-800 truncate">
               {invoice.invoiceNumber || invoice.uploadedFile?.originalName || 'Invoice'}
             </h1>
-            <p className="text-xs text-ivory-500 truncate">
+            <p className="text-xs text-ivory-600 truncate">
               {invoice.uploadedFile?.originalName}
               {invoice.uploadedFile?.size ? ` · ${(invoice.uploadedFile.size / 1024).toFixed(1)} KB` : ''}
             </p>
@@ -264,10 +268,14 @@ export default function InvoiceDetail() {
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <StatusBar status={invoice.status} />
-          <span className={`${getStatusBadge(invoice.status)} flex-shrink-0`}>{invoice.status.replace(/_/g, ' ')}</span>
+          <span className={`${getStatusBadge(invoice.status)} flex-shrink-0`} role="status" aria-live="polite">
+            <span className="sr-only">Invoice status: </span>{invoice.status.replace(/_/g, ' ')}
+          </span>
           <button
             onClick={() => setShowLog(!showLog)}
             className="btn-ghost text-xs px-2 py-1"
+            aria-expanded={showLog}
+            aria-label="Toggle processing log"
             title="Processing log"
           >
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -280,7 +288,7 @@ export default function InvoiceDetail() {
 
       {/* Error */}
       {error && (
-        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2 flex-shrink-0">
+        <div role="alert" className="mb-3 p-3 bg-red-50 border border-red-300 rounded-lg text-red-800 text-sm flex items-center gap-2 flex-shrink-0">
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 flex-shrink-0">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
           </svg>
@@ -309,7 +317,7 @@ export default function InvoiceDetail() {
       {/* Processing log */}
       {showLog && (
         <div className="mb-4 bg-white border border-ivory-200 rounded-xl p-4 max-h-44 overflow-y-auto scrollbar-thin flex-shrink-0">
-          <h3 className="font-semibold text-xs uppercase tracking-wider text-ivory-500 mb-2">Processing Log</h3>
+          <h3 className="font-semibold text-xs uppercase tracking-wider text-ivory-600 mb-2">Processing Log</h3>
           <div className="space-y-1.5">
             {invoice.processingLog?.map((entry, i) => (
               <div key={i} className={`flex gap-2 p-2 rounded-lg text-xs ${
@@ -499,8 +507,8 @@ export default function InvoiceDetail() {
                         'border-ivory-200'
                       }`}>
                         <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[10px] font-bold uppercase tracking-wide text-ivory-600">
-                            {meta.label} <span className="text-amber-500">*</span>
+                          <label htmlFor={`field-${key}`} className="text-[10px] font-bold uppercase tracking-wide text-ivory-700">
+                            {meta.label} <span className="text-amber-700" aria-hidden="true">*</span>
                           </label>
                           <div className="flex items-center gap-1.5">
                             {isChanged && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1 rounded">edited</span>}
@@ -509,6 +517,7 @@ export default function InvoiceDetail() {
                           </div>
                         </div>
                         <input
+                          id={`field-${key}`}
                           type="text"
                           className={`input text-sm font-mono ${
                             hasDiscrepancy ? 'border-red-300 focus:ring-red-300' :
@@ -528,7 +537,7 @@ export default function InvoiceDetail() {
               <details className="bg-white border border-ivory-200 rounded-xl">
                 <summary className="px-4 py-3 text-sm font-semibold text-ivory-700 cursor-pointer select-none hover:text-ink-900 transition-colors">
                   Other Extracted Fields
-                  <span className="text-ivory-400 font-normal text-xs ml-1">(click to expand)</span>
+                  <span className="text-ivory-600 font-normal text-xs ml-1">(click to expand)</span>
                 </summary>
                 <div className="px-4 pb-4 space-y-2 border-t border-ivory-100 pt-3">
                   {otherKeys.map((key) => {
@@ -538,13 +547,14 @@ export default function InvoiceDetail() {
                     return (
                       <div key={key} className={`rounded-lg border p-2.5 ${isChanged ? 'border-amber-300 bg-amber-50' : 'border-ivory-100'}`}>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-semibold uppercase tracking-wide text-ivory-500">{meta.label}</label>
+                          <label htmlFor={`field-other-${key}`} className="text-[10px] font-semibold uppercase tracking-wide text-ivory-600">{meta.label}</label>
                           <div className="flex items-center gap-1">
                             {isChanged && <span className="text-[10px] text-amber-600 font-semibold">edited</span>}
                             <ConfidenceDot value={conf} />
                           </div>
                         </div>
                         <input
+                          id={`field-other-${key}`}
                           type="text"
                           className={`input text-sm font-mono py-1.5 ${isChanged ? 'border-amber-300' : ''}`}
                           value={editedFields[key] ?? ''}
@@ -620,7 +630,7 @@ export default function InvoiceDetail() {
                   ) : invoice.status === 'review_required' ? 'Re-run Matching' : 'Submit for Matching'}
                 </button>
               </div>
-              <p className="text-[10px] text-ivory-400 text-center">Unsaved edits are saved automatically before matching</p>
+              <p className="text-[10px] text-ivory-600 text-center">Unsaved edits are saved automatically before matching</p>
             </div>
           </div>
         </div>
@@ -629,15 +639,15 @@ export default function InvoiceDetail() {
       {/* ── PASSED ── */}
       {invoice.status === 'passed' && (
         <div className="flex-1 space-y-5">
-          <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-5">
-            <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6 text-emerald-600">
+          <div className="p-5 bg-ink-50 border border-ink-200 rounded-xl flex items-center gap-5" role="status" aria-live="polite">
+            <div className="w-12 h-12 bg-ink-100 rounded-xl flex items-center justify-center flex-shrink-0" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6 text-ink-600">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <h2 className="font-serif text-2xl font-bold text-emerald-800">Invoice Passed</h2>
-              <p className="text-emerald-700 mt-0.5 text-sm">All checks passed. Match score: <span className="font-mono font-bold">{vr.matchScore}%</span></p>
+              <h2 className="font-serif text-2xl font-bold text-ink-700">Invoice Passed</h2>
+              <p className="text-ink-600 mt-0.5 text-sm">All checks passed. Match score: <span className="font-mono font-bold">{vr.matchScore}%</span></p>
             </div>
           </div>
 

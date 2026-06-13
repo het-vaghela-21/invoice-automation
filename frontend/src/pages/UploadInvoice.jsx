@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { invoiceAPI, poAPI } from '../services/api';
+import { usePageEntrance, pulse } from '../utils/motion';
 
 const fileSize = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -17,6 +18,8 @@ export default function UploadInvoice() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+  const pageRef = usePageEntrance();
+  const dropRef = useRef(null);
 
   useEffect(() => {
     poAPI.getAll({ status: 'approved', limit: 100 }).then((res) => setPos(res.data.data));
@@ -24,7 +27,11 @@ export default function UploadInvoice() {
   }, [location.state]);
 
   const onDrop = useCallback((accepted) => {
-    if (accepted[0]) { setFile(accepted[0]); setError(''); }
+    if (accepted[0]) {
+      setFile(accepted[0]);
+      setError('');
+      pulse(dropRef.current);
+    }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -53,15 +60,15 @@ export default function UploadInvoice() {
   };
 
   return (
-    <div className="max-w-xl space-y-6">
-      <div>
-        <h1 className="font-serif text-2xl font-bold text-ink-900">Upload Invoice</h1>
-        <p className="text-ivory-600 text-sm mt-0.5">Upload a PDF or image invoice to begin extraction and validation</p>
+    <div ref={pageRef} className="max-w-xl space-y-6">
+      <div data-animate>
+        <h1 className="font-serif text-2xl font-bold text-ink-800">Upload Invoice</h1>
+        <p className="text-ivory-700 text-sm mt-0.5">Upload a PDF or image invoice to begin extraction and validation</p>
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 flex-shrink-0">
+        <div role="alert" className="p-3 bg-red-50 border border-red-300 rounded-lg text-red-800 text-sm flex items-center gap-2">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 flex-shrink-0" aria-hidden="true">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
           </svg>
           {error}
@@ -69,81 +76,90 @@ export default function UploadInvoice() {
       )}
 
       {/* PO selector */}
-      <div className="card">
-        <label className="label">Link to Purchase Order</label>
-        <select className="input" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
+      <div className="card" data-animate>
+        <label htmlFor="po-select" className="label">Link to Purchase Order</label>
+        <select id="po-select" className="input" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
           <option value="">No PO — process without matching</option>
           {pos.map((po) => (
             <option key={po._id} value={po._id}>{po.poNumber} — {po.vendor?.name}</option>
           ))}
         </select>
-        <p className="text-xs text-ivory-500 mt-2">Linking a PO enables full validation and match scoring against expected amounts and line items.</p>
+        <p className="text-xs text-ivory-600 mt-2">Linking a PO enables full validation and match scoring against expected amounts and line items.</p>
       </div>
 
       {/* Drop zone */}
-      <div className="card">
-        <label className="label mb-3 block">Invoice File</label>
+      <div className="card" data-animate>
+        <p className="label mb-3">Invoice File</p>
         <div
-          {...getRootProps()}
+          {...getRootProps({
+            'aria-label': 'Invoice file dropzone. Drag and drop a PDF, JPG or PNG file here, or press Enter to browse.',
+            ref: dropRef,
+          })}
           className={`relative border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
             isDragActive
-              ? 'border-amber-400 bg-amber-50 scale-[1.01]'
+              ? 'border-amber-500 bg-amber-50 scale-[1.015] shadow-card-hover'
               : file
-              ? 'border-emerald-300 bg-emerald-50'
-              : 'border-ivory-300 hover:border-amber-300 hover:bg-amber-50/50'
+              ? 'border-ink-300 bg-ink-50'
+              : 'border-ivory-400 hover:border-amber-400 hover:bg-amber-50/60'
           }`}
         >
-          <input {...getInputProps()} />
+          <input {...getInputProps()} aria-label="Invoice file input" />
           {file ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-700">
+                <div className="w-12 h-12 bg-ink-100 rounded-xl flex items-center justify-center text-ink-700" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-6 h-6">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="text-left">
-                  <p className="font-medium text-ink-900 text-sm">{file.name}</p>
-                  <p className="text-xs text-ivory-500 mt-0.5">{fileSize(file.size)} · {file.type.split('/')[1].toUpperCase()}</p>
+                  <p className="font-medium text-ivory-900 text-sm">{file.name}</p>
+                  <p className="text-xs text-ivory-600 mt-0.5 font-mono">{fileSize(file.size)} · {file.type.split('/')[1].toUpperCase()}</p>
                 </div>
               </div>
               <button
                 type="button"
-                className="text-ivory-400 hover:text-red-500 transition-colors p-1"
+                aria-label="Remove selected file"
+                className="text-ivory-500 hover:text-red-700 transition-colors p-1 rounded"
                 onClick={(e) => { e.stopPropagation(); setFile(null); }}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
           ) : (
             <div>
-              <div className="w-14 h-14 bg-ivory-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-ivory-400">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-7 h-7">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
+              {/* stacked-paper document motif */}
+              <div className="relative w-16 h-16 mx-auto mb-5" aria-hidden="true">
+                <div className={`absolute inset-0 bg-white border border-ivory-400 rounded-lg transition-transform duration-300 ${isDragActive ? '-rotate-6 -translate-x-1.5' : '-rotate-3'}`} />
+                <div className={`absolute inset-0 bg-white border border-ivory-400 rounded-lg transition-transform duration-300 ${isDragActive ? 'rotate-6 translate-x-1.5' : 'rotate-2'}`} />
+                <div className="absolute inset-0 bg-ivory-50 border border-ivory-400 rounded-lg paper-ruled flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={`w-7 h-7 transition-colors ${isDragActive ? 'text-amber-700' : 'text-ink-500'}`}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                </div>
               </div>
-              <p className="font-semibold text-ink-800 mb-1">
-                {isDragActive ? 'Drop it here' : 'Drag & drop your invoice'}
+              <p className="font-serif font-semibold text-lg text-ink-700 mb-1">
+                {isDragActive ? 'Drop it on the ledger' : 'Drag & drop your invoice'}
               </p>
-              <p className="text-sm text-ivory-500">or <span className="text-amber-600 font-semibold">click to browse</span></p>
-              <p className="text-xs text-ivory-400 mt-3">PDF, JPG, or PNG — max 10 MB</p>
+              <p className="text-sm text-ivory-700">or <span className="text-amber-800 font-semibold underline decoration-amber-300 underline-offset-2">click to browse</span></p>
+              <p className="text-xs text-ivory-600 mt-3 font-mono">PDF · JPG · PNG — max 10 MB</p>
             </div>
           )}
         </div>
       </div>
 
       {/* Action buttons */}
-      <div className="flex gap-3">
+      <div className="flex gap-3" data-animate>
         <button
           className="btn-primary flex-1 py-3"
           onClick={handleUpload}
           disabled={!file || loading}
         >
           {loading ? (
-            <span className="flex items-center gap-2">
-              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            <span className="flex items-center gap-2" role="status">
+              <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden="true" />
               Uploading…
             </span>
           ) : 'Upload Invoice →'}
@@ -152,14 +168,14 @@ export default function UploadInvoice() {
       </div>
 
       {/* Info box */}
-      <div className="border border-amber-200 bg-amber-50 rounded-xl p-5">
-        <h3 className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+      <div className="border border-amber-200 bg-amber-50 rounded-xl p-5" data-animate>
+        <h2 className="text-sm font-bold font-sans text-amber-900 mb-2 flex items-center gap-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
           </svg>
           What happens after upload?
-        </h3>
-        <ol className="text-sm text-amber-700 space-y-1.5 list-none">
+        </h2>
+        <ol className="text-sm text-amber-900 space-y-1.5 list-none">
           {[
             'File stored with SHA-256 hash for duplicate detection',
             'Click "Start OCR" to extract text from the document',
@@ -167,7 +183,7 @@ export default function UploadInvoice() {
             'Submit for PO matching — receive pass, review, or reject verdict',
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-2">
-              <span className="font-mono text-xs font-bold text-amber-500 mt-0.5 flex-shrink-0">0{i + 1}</span>
+              <span className="font-mono text-xs font-bold text-amber-700 mt-0.5 flex-shrink-0" aria-hidden="true">0{i + 1}</span>
               {step}
             </li>
           ))}
