@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
+import { usePageEntrance, useScrollEntrance } from '../utils/motion';
 
 const features = [
   {
@@ -53,26 +54,26 @@ function MockDashboard() {
     { id: 'INV-TC-0189',  vendor: 'TechCorp',      amount: '$12,000', status: 'review', score: 42 },
     { id: 'INV-GLOB-031', vendor: 'Global Svc',    amount: '$2,400',  status: 'pending', score: null },
   ];
-  const statusStyle = { passed: 'text-emerald-600 bg-emerald-50', review: 'text-orange-600 bg-orange-50', pending: 'text-amber-600 bg-amber-50' };
+  const statusStyle = { passed: 'text-ink-700 bg-ink-50', review: 'text-orange-800 bg-orange-50', pending: 'text-amber-800 bg-amber-50' };
   const statusLabel = { passed: 'Passed', review: 'Review', pending: 'Pending' };
 
   return (
     <div className="bg-white rounded-2xl shadow-modal overflow-hidden border border-ivory-200 select-none">
       {/* mock top bar */}
-      <div className="bg-ink-900 px-5 py-3 flex items-center gap-3">
-        <div className="flex gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-red-400 opacity-70" />
-          <div className="w-3 h-3 rounded-full bg-yellow-400 opacity-70" />
-          <div className="w-3 h-3 rounded-full bg-green-400 opacity-70" />
+      <div className="bg-ivory-100 border-b border-ivory-300 px-5 py-3 flex items-center gap-3">
+        <div className="flex gap-1.5" aria-hidden="true">
+          <div className="w-3 h-3 rounded-full bg-red-300" />
+          <div className="w-3 h-3 rounded-full bg-amber-300" />
+          <div className="w-3 h-3 rounded-full bg-ink-300" />
         </div>
-        <div className="flex-1 text-center text-xs font-mono text-ink-300 opacity-60">ledger.app — Dashboard</div>
+        <div className="flex-1 text-center text-xs font-mono text-ivory-600">ledger.app — Dashboard</div>
       </div>
 
       {/* mock stats row */}
       <div className="grid grid-cols-3 divide-x divide-ivory-200 border-b border-ivory-200">
         {[['5', 'Total Invoices'], ['2', 'Passed'], ['1', 'Review Req.']].map(([v, l]) => (
           <div key={l} className="p-4 text-center">
-            <div className="text-2xl font-serif font-bold text-ink-900">{v}</div>
+            <div className="text-2xl font-mono font-bold text-ink-700">{v}</div>
             <div className="text-xs text-ivory-600 mt-0.5">{l}</div>
           </div>
         ))}
@@ -85,7 +86,7 @@ function MockDashboard() {
         </div>
         {rows.map((r, i) => (
           <div key={i} className="grid grid-cols-4 px-4 py-2.5 border-t border-ivory-100 items-center">
-            <span className="font-mono text-[10px] text-ink-700">{r.id}</span>
+            <span className="font-mono text-[10px] text-ink-600">{r.id}</span>
             <span className="text-ivory-800">{r.vendor}</span>
             <span className="font-mono font-medium">{r.amount}</span>
             <span>
@@ -102,7 +103,7 @@ function MockDashboard() {
       <div className="px-4 py-3 bg-ivory-50 border-t border-ivory-200 flex justify-between items-center">
         <span className="text-[10px] text-ivory-500 font-mono">3 invoices shown</span>
         <div className="h-1.5 w-24 bg-ivory-200 rounded-full overflow-hidden">
-          <div className="h-full w-2/3 bg-amber-400 rounded-full" />
+          <div className="h-full w-2/3 bg-amber-500 rounded-full" />
         </div>
       </div>
     </div>
@@ -110,81 +111,81 @@ function MockDashboard() {
 }
 
 export default function Landing() {
+  const pageRef = usePageEntrance();
+  const featuresRef = useScrollEntrance({ stagger: 0.1, duration: 0.55 });
+  const stepsRef = useScrollEntrance({ stagger: 0.12, duration: 0.5 });
   return (
-    <div className="min-h-screen bg-ivory-200 font-sans">
+    <div ref={pageRef} className="min-h-screen bg-ivory-100 font-sans">
       {/* ── Nav ──────────────────────────────────────────────────────── */}
-      <nav className="bg-ink-900 text-white px-6 md:px-12 py-4 flex items-center justify-between">
+      <nav className="bg-ivory-50/90 backdrop-blur border-b border-ivory-300 px-6 md:px-12 py-4 flex items-center justify-between sticky top-0 z-30" aria-label="Primary">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-amber-500 rounded flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-4 h-4">
+          <div className="w-7 h-7 bg-ink-600 rounded flex items-center justify-center" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fefdf9" strokeWidth="2.2" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
           </div>
-          <span className="font-serif font-semibold text-lg tracking-tight">Ledger</span>
+          <span className="font-serif font-bold text-lg tracking-tight text-ink-700">Ledger</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm text-ink-200 hover:text-white transition-colors">Sign In</Link>
-          <Link to="/register" className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors">
+          <Link to="/login" className="text-sm font-medium text-ivory-800 hover:text-ink-700 transition-colors rounded">Sign In</Link>
+          <Link to="/register" className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition-colors shadow-sm">
             Get Started
           </Link>
         </div>
       </nav>
 
       {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <section className="bg-ink-900 text-white relative overflow-hidden">
+      <section className="bg-ivory-50 paper-ruled border-b border-ivory-300 relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-6 md:px-12 py-20 md:py-28 grid md:grid-cols-2 gap-16 items-center">
           {/* Left */}
-          <div className="animate-fade-up">
-            <div className="inline-flex items-center gap-2 bg-ink-800 border border-ink-700 rounded-full px-3 py-1 text-xs text-ink-200 mb-8">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          <div data-animate>
+            <div className="inline-flex items-center gap-2 bg-white border border-ivory-300 rounded-full px-3 py-1 text-xs font-medium text-ivory-800 mb-8 shadow-card">
+              <span className="w-1.5 h-1.5 rounded-full bg-ink-500 animate-pulse" aria-hidden="true" />
               Invoice automation for finance teams
             </div>
-            <h1 className="font-serif text-5xl md:text-6xl font-bold leading-[1.08] mb-6 text-white">
+            <h1 className="font-serif text-5xl md:text-6xl font-bold leading-[1.08] mb-6 text-ink-800">
               Invoice processing,<br />
-              <span className="text-amber-400 italic">done right.</span>
+              <span className="text-amber-700 italic">done right.</span>
             </h1>
-            <p className="text-ink-300 text-lg leading-relaxed mb-10 max-w-md">
+            <p className="text-ivory-700 text-lg leading-relaxed mb-10 max-w-md">
               Upload invoices, extract data automatically, verify against purchase orders,
               and close books faster — with a full audit trail on every decision.
             </p>
             <div className="flex flex-wrap gap-3">
-              <Link to="/register" className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-200 shadow-sm">
+              <Link to="/register" className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-lg transition-all duration-200 shadow-sm">
                 Start free →
               </Link>
-              <Link to="/login" className="bg-ink-800 hover:bg-ink-700 text-white font-medium px-6 py-3 rounded-lg transition-all duration-200 border border-ink-600">
+              <Link to="/login" className="bg-white hover:bg-ivory-100 text-ink-700 font-medium px-6 py-3 rounded-lg transition-all duration-200 border border-ivory-400">
                 Sign in
               </Link>
             </div>
-            <p className="mt-6 text-xs text-ink-500">Demo credentials: admin@company.com / admin123</p>
+            <p className="mt-6 text-xs text-ivory-600 font-mono">Demo credentials: admin@company.com / admin123</p>
           </div>
 
           {/* Right — mock dashboard */}
-          <div className="animate-fade-up delay-200 hidden md:block">
+          <div className="hidden md:block" data-animate>
             <MockDashboard />
           </div>
         </div>
-
-        {/* Wave divider */}
-        <div className="absolute bottom-0 left-0 right-0 h-12 bg-ivory-200" style={{ clipPath: 'ellipse(60% 100% at 50% 100%)' }} />
       </section>
 
       {/* ── Features grid ────────────────────────────────────────────── */}
       <section className="max-w-7xl mx-auto px-6 md:px-12 py-20">
-        <div className="text-center mb-14">
-          <h2 className="font-serif text-4xl font-bold text-ink-900 mb-3">Everything you need</h2>
+        <div className="text-center mb-14" data-animate>
+          <h2 className="font-serif text-4xl font-bold text-ink-800 mb-3">Everything you need</h2>
           <p className="text-ivory-700 text-lg">from upload to approval, without the spreadsheet chaos</p>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div ref={featuresRef} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((f, i) => (
             <div
               key={i}
-              className="bg-white border border-ivory-300 rounded-xl p-6 hover:shadow-card-hover hover:border-amber-200 transition-all duration-300 animate-fade-up"
-              style={{ animationDelay: `${i * 80}ms` }}
+              className="bg-white border border-ivory-300 rounded-xl p-6 hover:shadow-card-hover hover:border-amber-300 transition-all duration-300"
+              data-scroll
             >
-              <div className="w-11 h-11 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4">
+              <div className="w-11 h-11 bg-amber-50 text-amber-800 rounded-xl flex items-center justify-center mb-4" aria-hidden="true">
                 {f.icon}
               </div>
-              <h3 className="font-serif font-bold text-ink-900 text-lg mb-2">{f.title}</h3>
+              <h3 className="font-serif font-bold text-ink-700 text-lg mb-2">{f.title}</h3>
               <p className="text-ivory-700 text-sm leading-relaxed">{f.desc}</p>
             </div>
           ))}
@@ -192,21 +193,21 @@ export default function Landing() {
       </section>
 
       {/* ── How it works ─────────────────────────────────────────────── */}
-      <section className="bg-ink-900 text-white py-20">
+      <section className="bg-ink-50 border-y border-ink-100 py-20">
         <div className="max-w-5xl mx-auto px-6 md:px-12">
-          <h2 className="font-serif text-4xl font-bold text-center mb-14">
-            Four steps,<br /><span className="text-amber-400 italic">zero guesswork.</span>
+          <h2 className="font-serif text-4xl font-bold text-center mb-14 text-ink-800" data-animate>
+            Four steps,<br /><span className="text-amber-700 italic">zero guesswork.</span>
           </h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div ref={stepsRef} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {steps.map((s, i) => (
-              <div key={i} className="relative">
+              <div key={i} className="relative" data-scroll>
                 {i < steps.length - 1 && (
-                  <div className="hidden lg:block absolute top-5 left-[calc(100%-12px)] w-full h-px border-t border-dashed border-ink-700 z-0" />
+                  <div className="hidden lg:block absolute top-5 left-[calc(100%-12px)] w-full h-px border-t border-dashed border-ink-300 z-0" aria-hidden="true" />
                 )}
                 <div className="relative z-10">
-                  <div className="font-mono text-3xl font-bold text-amber-500 mb-3">{s.num}</div>
-                  <h3 className="font-serif font-bold text-xl text-white mb-2">{s.title}</h3>
-                  <p className="text-ink-300 text-sm leading-relaxed">{s.desc}</p>
+                  <div className="font-mono text-3xl font-bold text-amber-700 mb-3" aria-hidden="true">{s.num}</div>
+                  <h3 className="font-serif font-bold text-xl text-ink-700 mb-2">{s.title}</h3>
+                  <p className="text-ivory-700 text-sm leading-relaxed">{s.desc}</p>
                 </div>
               </div>
             ))}
@@ -216,7 +217,7 @@ export default function Landing() {
 
       {/* ── CTA ──────────────────────────────────────────────────────── */}
       <section className="max-w-3xl mx-auto px-6 py-24 text-center">
-        <h2 className="font-serif text-4xl font-bold text-ink-900 mb-4">
+        <h2 className="font-serif text-4xl font-bold text-ink-800 mb-4">
           Ready to clear the invoice backlog?
         </h2>
         <p className="text-ivory-700 text-lg mb-8">
@@ -224,21 +225,21 @@ export default function Landing() {
         </p>
         <Link
           to="/login"
-          className="inline-block bg-amber-500 hover:bg-amber-600 text-white font-semibold text-lg px-8 py-4 rounded-xl transition-all duration-200 shadow-sm"
+          className="inline-block bg-amber-600 hover:bg-amber-700 text-white font-semibold text-lg px-8 py-4 rounded-xl transition-all duration-200 shadow-sm"
         >
           Open the dashboard →
         </Link>
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer className="border-t border-ivory-300 py-8 px-6 md:px-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-ivory-600">
+      <footer className="border-t border-ivory-300 py-8 px-6 md:px-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-ivory-700">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 bg-amber-500 rounded flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" className="w-3 h-3">
+          <div className="w-5 h-5 bg-ink-600 rounded flex items-center justify-center" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fefdf9" strokeWidth="2.5" className="w-3 h-3">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
           </div>
-          <span className="font-serif font-semibold text-ink-800">Ledger</span>
+          <span className="font-serif font-bold text-ink-700">Ledger</span>
         </div>
         <span>Invoice Automation System — Finance Management</span>
       </footer>

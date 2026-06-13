@@ -6,9 +6,11 @@ exports.getStats = async (req, res, next) => {
   try {
     const [
       totalInvoices,
-      validated,
+      passed,
       rejected,
-      processing,
+      reviewRequired,
+      pendingReview,
+      ocrExtracted,
       uploaded,
       totalVendors,
       totalPOs,
@@ -16,9 +18,11 @@ exports.getStats = async (req, res, next) => {
       statusBreakdown
     ] = await Promise.all([
       Invoice.countDocuments(),
-      Invoice.countDocuments({ status: 'validated' }),
+      Invoice.countDocuments({ status: 'passed' }),
       Invoice.countDocuments({ status: 'rejected' }),
-      Invoice.countDocuments({ status: 'processing' }),
+      Invoice.countDocuments({ status: 'review_required' }),
+      Invoice.countDocuments({ status: 'pending_review' }),
+      Invoice.countDocuments({ status: 'ocr_extracted' }),
       Invoice.countDocuments({ status: 'uploaded' }),
       Vendor.countDocuments({ status: 'active' }),
       PurchaseOrder.countDocuments(),
@@ -33,10 +37,25 @@ exports.getStats = async (req, res, next) => {
       ])
     ]);
 
+    const inProgress = reviewRequired + pendingReview + ocrExtracted;
+
     res.json({
       success: true,
       data: {
-        invoices: { total: totalInvoices, validated, rejected, processing, uploaded },
+        invoices: {
+          total: totalInvoices,
+          passed,
+          // legacy aliases kept for any old clients
+          validated: passed,
+          rejected,
+          reviewRequired,
+          pendingReview,
+          ocrExtracted,
+          inProgress,
+          // legacy alias
+          processing: inProgress,
+          uploaded,
+        },
         vendors: totalVendors,
         purchaseOrders: totalPOs,
         recentInvoices,
