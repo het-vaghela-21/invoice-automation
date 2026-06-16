@@ -140,7 +140,7 @@ Same body shape and validation as create, partial updates allowed. `404` if not 
 
 ## Purchase Orders
 
-Reads need any authenticated role. `POST`/`PUT` need `accountant` or `admin`.
+Reads need any authenticated role. `POST`/`PUT` need `accountant` or `admin`. Note that `status` can also change as a *side effect* of `POST /api/invoices/:id/match` — a PO automatically flips to `"closed"` the moment an invoice passes against it, with no separate PO API call involved (see [ARCHITECTURE.md §6a](./ARCHITECTURE.md#6a-bulk-friendly-po-matching-auto-detect-on-extraction-auto-close-on-pass)).
 
 ### `GET /api/purchase-orders`
 Query params: `vendor` (ObjectId), `status` (`draft`|`approved`|`closed`|`cancelled`), `page`, `limit`.
@@ -191,12 +191,14 @@ Full invoice document — `extractedData`, `userVerifiedData`, `fieldChanges` (w
 | field | required | notes |
 |---|---|---|
 | `invoice` | yes | the file — PDF, JPG, or PNG, max 10 MB |
-| `purchaseOrderId` | no | links the invoice to a PO (and its vendor) up front |
+| `purchaseOrderId` | no | **manual override, not the expected path.** Bulk/normal usage: omit this — the PO is detected automatically from the invoice's own PO number once OCR runs (see the `/ocr` endpoint below and [ARCHITECTURE.md §6a](./ARCHITECTURE.md#6a-bulk-friendly-po-matching-auto-detect-on-extraction-auto-close-on-pass)). Only set this when the invoice doesn't print a PO number, or extraction is expected to misread it. If set, it always wins — auto-detection never overwrites a manually-chosen PO. |
 
 No OCR runs here — the invoice is created with `status: "uploaded"` and a SHA-256 hash of the file is stored. Response `201` with the created invoice. `400` if no file or wrong mimetype (multer's `fileFilter` rejects anything except `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`).
 
 ### `POST /api/invoices/:id/ocr` — run OCR + extraction
 No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable). Runs `pdf-parse` or `Tesseract.js` depending on mimetype, then the regex extractors, then a duplicate check. On success, `status → ocr_extracted` and the populated invoice is returned. `500` with `{"message":"OCR processing failed","error":"..."}` if the OCR engine throws (also logged into `processingLog`).
+
+**If no PO was linked at upload**, this is also where auto-detection happens: the PO number extraction just found is looked up against every PO in the system (any status — not just `approved`, so an invoice referencing an already-closed PO still gets linked rather than silently falling through to a looser fallback) and linked automatically if found. Check `data.purchaseOrder` in the response, or `processingLog` for a `"PO Auto-Matched"` (success) or `"PO Auto-Match Failed"` (warning — no PO with that number exists) entry.
 
 ### `PATCH /api/invoices/:id/fields` — save user-verified field values
 ```json
@@ -205,12 +207,16 @@ No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable)
 Only valid when `status` is `ocr_extracted`, `pending_review`, or `review_required`. `fields` is validated as required and must be a non-empty object — `{}` or a missing `fields` key returns `400`. Diffs each key against the current baseline (verified value if present, else the OCR-extracted value) and appends an entry to `fieldChanges` for anything that actually changed (full before/after + who + when). `status → pending_review`. Returns the populated invoice.
 
 ### `POST /api/invoices/:id/match` — run PO matching
-No body. Only valid in the same three statuses as above. Merges `userVerifiedData` over `extractedData`, re-runs the duplicate check, and:
-- if a PO is linked → scores against it (see [ARCHITECTURE.md §6](./ARCHITECTURE.md#6-validation--matching-layer-backendsrcservicesvalidationservicejs))
-- if no PO is linked → loose fuzzy vendor-name check only
+No body. Only valid in the same three statuses as above. Merges `userVerifiedData` over `extractedData`, and:
+- **if still no PO is linked**, makes one more auto-detection attempt using the verified PO number (covers a user correcting a misread PO number during review before a PO was ever auto-linked at OCR time)
+- re-runs the duplicate check
+- if a PO is linked (whether from upload, OCR auto-detect, or the line above) → scores against it, including a check that the PO's own `status` is `"approved"` (see [ARCHITECTURE.md §6a](./ARCHITECTURE.md#6a-bulk-friendly-po-matching-auto-detect-on-extraction-auto-close-on-pass)) — a `draft`/`closed`/`cancelled` PO is an automatic high-severity discrepancy, forcing review regardless of how well everything else matches
+- if no PO is linked at all → loose fuzzy vendor-name check only
 - a duplicate hit always forces `review_required`
 
 `status → passed | review_required`. Returns the populated invoice including `validationResult: { status, matchScore, discrepancies[], duplicateCheck }`.
+
+**If the result is `"passed"` and a PO was matched, that PO's `status` is immediately set to `"closed"`** — so it can never be matched (and silently passed) by a second invoice. A `poStatus` discrepancy is exactly what catches that second invoice: see ARCHITECTURE.md §6a for the full reasoning.
 
 ### `POST /api/invoices/:id/reject`
 ```json

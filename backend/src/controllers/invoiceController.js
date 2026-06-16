@@ -4,7 +4,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const Vendor = require('../models/Vendor');
 const { extractText } = require('../services/ocrService');
 const { extractInvoiceData } = require('../services/extractionService');
-const { computeFileHash, checkDuplicate, validateAgainstPO } = require('../services/validationService');
+const { computeFileHash, checkDuplicate, validateAgainstPO, findPurchaseOrderByNumber } = require('../services/validationService');
 const { toCSV } = require('../utils/csv');
 
 // Helper: flatten extractedData into a key→value map for matching
@@ -83,6 +83,30 @@ exports.triggerOCR = async (req, res, next) => {
       const extractedData = extractInvoiceData(text);
       invoice.extractedData = extractedData;
       if (extractedData.invoiceNumber?.value) invoice.invoiceNumber = extractedData.invoiceNumber.value;
+
+      // Auto-detect & link the Purchase Order this invoice should be matched
+      // against, based on the PO number OCR just found in the document —
+      // this is what lets bulk-uploaded invoices get matched without anyone
+      // manually picking a PO. A PO chosen manually at upload time always
+      // wins and is never overwritten here.
+      if (!invoice.purchaseOrder && extractedData.poNumber?.value) {
+        const matchedPO = await findPurchaseOrderByNumber(extractedData.poNumber.value);
+        if (matchedPO) {
+          invoice.purchaseOrder = matchedPO._id;
+          if (!invoice.vendor) invoice.vendor = matchedPO.vendor?._id || matchedPO.vendor;
+          invoice.processingLog.push({
+            action: 'PO Auto-Matched',
+            details: `Linked to ${matchedPO.poNumber} (auto-detected from extracted PO number "${extractedData.poNumber.value}")`,
+            status: 'success'
+          });
+        } else {
+          invoice.processingLog.push({
+            action: 'PO Auto-Match Failed',
+            details: `Extracted PO number "${extractedData.poNumber.value}" did not match any purchase order in the system — link one manually if needed`,
+            status: 'warning'
+          });
+        }
+      }
 
       // Duplicate check
       const dupCheck = await checkDuplicate(invoice.uploadedFile.hash, extractedData.invoiceNumber?.value, invoice._id);
@@ -176,6 +200,23 @@ exports.submitMatching = async (req, res, next) => {
     const baseline = flattenExtracted(invoice.extractedData);
     const verifiedData = { ...baseline, ...(invoice.userVerifiedData || {}) };
 
+    // Second chance at auto-linking a PO: triggerOCR already tries this right
+    // after extraction, but if that lookup failed (garbled OCR) and the user
+    // then corrected the "PO Number" field during review, this is where that
+    // correction actually gets a PO attached before scoring runs.
+    if (!invoice.purchaseOrder && verifiedData.poNumber) {
+      const matchedPO = await findPurchaseOrderByNumber(verifiedData.poNumber);
+      if (matchedPO) {
+        invoice.purchaseOrder = matchedPO; // populated doc — used directly below, cast to its _id on save
+        if (!invoice.vendor) invoice.vendor = matchedPO.vendor;
+        invoice.processingLog.push({
+          action: 'PO Auto-Matched',
+          details: `Linked to ${matchedPO.poNumber} at match time (based on the verified PO number)`,
+          status: 'success'
+        });
+      }
+    }
+
     // Always re-run duplicate check so a deleted duplicate doesn't block matching
     const freshDuplicateCheck = await checkDuplicate(
       invoice.uploadedFile?.hash,
@@ -236,6 +277,25 @@ exports.submitMatching = async (req, res, next) => {
       details: `Score: ${validationResult.matchScore}% | Status: ${validationResult.status} | Discrepancies: ${validationResult.discrepancies.length}`,
       status: validationResult.status === 'passed' ? 'success' : 'warning'
     });
+
+    // Close the PO out the moment this invoice is confirmed as a correct
+    // match against it — so a second invoice can never land on the same PO
+    // and silently pass too (validateAgainstPO's poStatus check is what
+    // catches that second invoice and forces it to review_required once
+    // the PO here is no longer "approved"). Only reached when status is
+    // "passed", which validateAgainstPO only returns for a PO that was
+    // still "approved" at scoring time — so this is never closing a PO
+    // that was draft/already-closed/cancelled.
+    const poToClose = invoice.purchaseOrder?._id || invoice.purchaseOrder;
+    if (validationResult.status === 'passed' && poToClose) {
+      await PurchaseOrder.findByIdAndUpdate(poToClose, { status: 'closed' });
+      invoice.processingLog.push({
+        action: 'Purchase Order Closed',
+        details: `PO automatically closed after this invoice passed verification — it can no longer be matched against another invoice`,
+        status: 'info'
+      });
+    }
+
     await invoice.save();
 
     const populated = await Invoice.findById(invoice._id)

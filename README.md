@@ -10,12 +10,13 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 
 ## What it does
 
-1. **Upload** a vendor invoice (PDF, JPG, or PNG), optionally linked to a Purchase Order.
+1. **Upload** a vendor invoice (PDF, JPG, or PNG) — no manual PO selection needed, so this works for invoices arriving in bulk.
 2. **Run OCR** — `pdf-parse` for PDFs with an embedded text layer, `Tesseract.js` (in-process WASM OCR) for images.
 3. **Extract fields** — invoice number, vendor name, GST/tax ID, PO number, dates, amounts, currency, bank account, and line items, each with a confidence score, via a heuristic regex extraction layer.
-4. **Review & correct** — a human checks the extracted fields side-by-side against the original document and fixes anything OCR got wrong. Every correction is logged (old value → new value → who → when).
-5. **Match against the PO** — a deterministic point-scored comparison (vendor name, PO number, total, currency, subtotal, line item count) plus SHA-256-based duplicate detection produces a match score and a `passed` / `review_required` verdict, with itemized discrepancies.
-6. **Audit** — every action (upload, OCR run, field edit, match run, rejection) is appended to a per-invoice processing log.
+4. **Auto-match the PO** — the PO number OCR just read is looked up against every purchase order in the system and linked automatically; a manual override is only needed if extraction fails or misreads it.
+5. **Review & correct** — a human checks the extracted fields side-by-side against the original document and fixes anything OCR got wrong. Every correction is logged (old value → new value → who → when).
+6. **Match against the PO** — a deterministic point-scored comparison (vendor name, PO number, total, currency, subtotal, line item count, and the PO's own approval status) plus SHA-256-based duplicate detection produces a match score and a `passed` / `review_required` verdict, with itemized discrepancies. A passing invoice immediately closes its PO so it can never be matched twice.
+7. **Audit** — every action (upload, OCR run, auto-match, field edit, match run, rejection) is appended to a per-invoice processing log.
 
 ## Feature list
 
@@ -24,11 +25,13 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 - 🏢 **Vendor management** with per-vendor configurable "required fields" — different vendors can demand different invoice fields (e.g. GSTIN for Indian vendors, bank account for others)
 - 🔎 **Vendor drill-down** — full PO + invoice history, total spend, and flagged-invoice count per vendor
 - 📄 **Purchase orders** with line items, auto-generated PO numbers (`PO-2026-00001`), server-computed subtotal/tax/total
-- 📤 **Drag-and-drop invoice upload** (PDF/JPG/PNG, 10 MB limit)
+- 📤 **Drag-and-drop invoice upload** (PDF/JPG/PNG, 10 MB limit) — no manual PO selection needed, built for bulk
 - 🔍 **In-process OCR** — no external API keys, no paid OCR service
 - 🧠 **Heuristic field extraction** with per-field confidence scores
+- 🔗 **Automatic PO matching** — the PO number on the invoice is read by OCR and linked to the matching purchase order automatically; manual selection is only an optional override for edge cases
 - ✏️ **Inline field correction** with a complete change-history audit trail
 - ✅ **PO matching engine** — transparent point-based scoring, configurable tolerance (5% on amounts), severity-tagged discrepancies
+- 🔒 **Auto-closing POs** — a PO is closed the instant an invoice passes against it, so a second invoice can never silently match (and pass) against an already-fulfilled PO
 - 🧬 **Duplicate detection** — SHA-256 file hash + invoice number, re-checked on every match run
 - 📥 **CSV export** for invoices and purchase orders (respects active filters)
 - 🛡️ **Server-side input validation** with field-level error messages (`express-validator`)
@@ -157,6 +160,7 @@ Each transition is a distinct user-triggered action (upload → start OCR → sa
 - OCR runs synchronously within the request — fine at current scale, would need a job queue for high-volume concurrent processing.
 - No scanned-PDF (image-only) → OCR fallback yet; only PDFs with an embedded text layer extract text via `pdf-parse`.
 - Field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. This is the intentional seam for plugging in a real model (see "Designed extension point" in `docs/ARCHITECTURE.md`).
+- Auto-detecting the PO depends on OCR reading the PO number correctly off the document; if it can't (unusual layout, low-quality scan), the invoice falls back to the looser fuzzy-vendor-only match and a human can link the right PO manually during review.
 - No real email delivery for password resets — the reset link is returned directly by the API outside production, since no SMTP service is configured for this demo.
 - Uploaded files live on local disk, not object storage.
 - Test coverage is limited to the pure extraction/matching logic — no integration tests against a live DB/HTTP layer yet.

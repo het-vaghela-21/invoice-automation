@@ -40,13 +40,16 @@ This is the core flow of the app, spanning multiple user actions (each is a sepa
      → multer saves file to backend/uploads/
      → SHA-256 hash computed over file bytes
      → Invoice doc created, status = "uploaded"
-     → optional purchaseOrderId links the invoice to a vendor up front
+     → optional purchaseOrderId manually links the invoice up front — this
+       is an override for edge cases, not the expected path; see §6a
 
 2. POST /api/invoices/:id/ocr       (user clicks "Start OCR")
      → ocrService.extractText() dispatches by mimetype:
          application/pdf      → pdf-parse (reads embedded text layer)
          image/jpeg|png|tiff  → Tesseract.js (WASM OCR)
      → extractionService.extractInvoiceData(text) runs ~10 regex extractors
+     → if no PO was linked at upload, the extracted PO number is looked up
+       against every PO in the system and auto-linked if found — see §6a
      → checkDuplicate() re-runs against the hash + invoice number
      → status = "ocr_extracted"
 
@@ -58,12 +61,16 @@ This is the core flow of the app, spanning multiple user actions (each is a sepa
 
 4. POST /api/invoices/:id/match     (user clicks "Submit for Matching")
      → merges userVerifiedData over extractedData → verifiedData
+     → if still no PO linked, makes one more auto-link attempt using the
+       (possibly user-corrected) PO number — see §6a
      → re-runs duplicate check (so a deleted duplicate doesn't permanently block)
      → if invoice.purchaseOrder is set: validationService.validateAgainstPO()
-       scores vendor name, PO number, totals, currency, subtotal, line item count
+       scores vendor name, PO number, totals, currency, subtotal, line item count,
+       *and* the PO's own status (a non-"approved" PO forces review — §6a)
      → if no PO linked: falls back to a fuzzy vendor-name-only check
      → duplicate hit forces status to "review_required" regardless of score
      → status = "passed" | "review_required"
+     → if status is "passed", the matched PO is immediately set to "closed" — §6a
 
 5. POST /api/invoices/:id/reject    (user manually rejects, any stage)
      → status = "rejected", reason logged
@@ -109,6 +116,8 @@ Two extractors behind one dispatch function (`extractText`):
 
 **Known gap, called out in code comments:** a scanned PDF (image embedded in a PDF wrapper, no text layer) is not handled — `pdf-parse` returns near-empty text and there's no PDF→image rasterization step to hand off to Tesseract. The fix is a small addition (e.g. `pdf-to-img` + Tesseract), not an architecture change.
 
+**Observed flakiness on Windows dev machines:** `pdf-parse` occasionally throws `bad XRef entry` (or, less often, a different parser error) on a `pdfkit`-generated PDF that parses fine moments later with no code or file changes — almost certainly antivirus/Windows Defender real-time scanning transiently locking a freshly-written file before the read completes, not a bug in this codebase. It self-resolves on retry (`POST /:id/ocr` is safe to re-run — see the status guard in `triggerOCR`) and wasn't observed at all in the project's day-to-day demo usage, only when scripting upload-then-immediately-OCR with no human delay in between. Not something this project's code can fix; worth knowing about if you hit it while testing.
+
 ## 5. Extraction layer (`backend/src/services/extractionService.js`)
 
 A pure-function, regex-based field extractor — no ML model is wired in yet (see §13). Each field has its own extractor function (`extractInvoiceNumber`, `extractVendorName`, `extractGSTNumber`, `extractPONumber`, `extractDates`, `extractCurrency`, `extractAmounts`, `extractLineItems`, `extractBankAccount`), each returning `{ value, confidence }`. A handful of design decisions matter here because they were the source of real bugs during development:
@@ -139,6 +148,23 @@ A pure-function, regex-based field extractor — no ML model is wired in yet (se
 If the invoice has no linked PO, matching falls back to a much looser check: does the extracted vendor name fuzzy-match any active vendor in the system at all? Score is binary (80 if yes, 40 if no).
 
 **Duplicate detection** (`computeFileHash` + `checkDuplicate`) is independent of PO matching and runs every time `submitMatching` is called (not just once at OCR time), specifically so that deleting a duplicate later doesn't leave a stale block in place. It matches on SHA-256 file hash OR exact invoice number, excluding the invoice's own ID. A duplicate hit overrides everything else and forces `review_required`, even if the PO match was perfect.
+
+### 6a. Bulk-friendly PO matching: auto-detect on extraction, auto-close on pass
+
+The original design required a human to manually pick the PO at upload time — workable for a handful of invoices, not for a real AP inbox receiving them in bulk. Two pieces close that gap:
+
+**Auto-detect.** `validationService.findPurchaseOrderByNumber(poNumberRaw)` looks up a PO purely from the PO number text OCR already extracted — no manual selection needed for the normal case. It tries a case-insensitive exact match first, then falls back to a normalized comparison (strips punctuation/spacing) to absorb minor OCR noise like `"PO 2026 00001"` vs `"PO-2026-00001"`. It's called from two places, each a safety net for the other:
+
+- `invoiceController.triggerOCR`, right after extraction — the primary path. Only runs `if (!invoice.purchaseOrder && extractedData.poNumber?.value)`: a PO chosen manually at upload always wins and is never overwritten here.
+- `invoiceController.submitMatching`, right before scoring — a second chance using whatever's in the verified/extracted PO number *at that point*, which covers a human correcting a misread PO number during review before a PO ever got linked at OCR time.
+
+Critically, **the lookup searches every PO status, not just `approved`** — `draft`, `closed`, and `cancelled` POs are all matchable by number. If it only matched `approved` POs, an invoice referencing an already-closed one would find nothing and silently fall through to the much more lenient fuzzy-vendor-only path, which is exactly the failure mode this feature exists to prevent (see below). Returning the closed PO so it can be flagged is the safer behavior than pretending it doesn't exist.
+
+**The PO-status discrepancy.** `validateAgainstPO` checks `purchaseOrder.status` before anything else: if it isn't `"approved"`, that's an automatic high-severity discrepancy (`{ field: 'poStatus', expected: 'approved', actual: purchaseOrder.status }`), which forces `review_required` regardless of how well everything else matches. This is what makes auto-detecting against non-approved POs safe rather than reckless — a `draft` PO means spending was never approved in the first place, and a `closed`/`cancelled` one means a prior invoice already used it up.
+
+**Auto-close on pass.** The moment `submitMatching` produces a `"passed"` result with a linked PO, `invoiceController.submitMatching` immediately sets that PO's `status` to `"closed"` (a plain `PurchaseOrder.findByIdAndUpdate`, not part of the invoice's own save). This is the other half of the safety net: a PO can only reach `"passed"` while it's still `"approved"` (the discrepancy check above guarantees that), so by the time matching is closing it, it's never closing a PO that was draft/already-closed/cancelled. The net effect: **a second invoice can never silently pass against a PO a prior invoice already closed** — it gets auto-linked (so the connection is visible), scored normally everywhere else, and then stopped cold by the PO-status discrepancy with a clear, specific reason instead of a generic "review me."
+
+This composes with the existing SHA-256/invoice-number duplicate check rather than replacing it — that catches literally-duplicate files or invoice numbers; this catches a *different*, *new* invoice that happens to reference a PO that's already been fulfilled (e.g. a vendor re-billing the same PO, or a corrected invoice arriving after the original was already approved and paid).
 
 ## 7. Auth & roles
 

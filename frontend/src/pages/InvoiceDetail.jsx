@@ -23,6 +23,16 @@ const FIELD_META = {
 
 const ALL_FIELD_KEYS = Object.keys(FIELD_META);
 
+// Discrepancy fields that aren't user-editable invoice fields (so they
+// don't belong in FIELD_META, which also drives the editable-fields list)
+// but still need a friendly label when shown in a discrepancy list/table.
+const DISCREPANCY_LABELS = {
+  poStatus: 'PO Status',
+  duplicateInvoice: 'Duplicate Check',
+  lineItemCount: 'Line Item Count',
+};
+const discrepancyLabel = (field) => FIELD_META[field]?.label || DISCREPANCY_LABELS[field] || field;
+
 function getExtracted(ext, key) {
   if (!ext) return null;
   switch (key) {
@@ -484,7 +494,7 @@ export default function InvoiceDetail() {
                           'bg-ivory-100 text-ivory-600'
                         }`}>{d.severity?.toUpperCase()}</span>
                         <div className="text-xs">
-                          <span className="font-semibold text-ink-800">{FIELD_META[d.field]?.label || d.field}</span>
+                          <span className="font-semibold text-ink-800">{discrepancyLabel(d.field)}</span>
                           <span className="text-ivory-500">: expected </span>
                           <span className="text-emerald-700 font-mono">{String(d.expected ?? '—')}</span>
                           <span className="text-ivory-500">, got </span>
@@ -787,7 +797,7 @@ export default function InvoiceDetail() {
                   <tbody className="divide-y divide-ivory-100">
                     {vr.discrepancies.map((d, i) => (
                       <tr key={i}>
-                        <td className="py-2 px-3 font-semibold capitalize">{FIELD_META[d.field]?.label || d.field}</td>
+                        <td className="py-2 px-3 font-semibold capitalize">{discrepancyLabel(d.field)}</td>
                         <td className="py-2 px-3 text-ivory-600 font-mono text-xs">{String(d.expected ?? '—')}</td>
                         <td className="py-2 px-3 text-red-700 font-mono text-xs font-medium">{String(d.actual ?? '—')}</td>
                         <td className="py-2 px-3">

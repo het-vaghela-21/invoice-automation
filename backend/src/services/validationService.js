@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const Invoice = require('../models/Invoice');
+const PurchaseOrder = require('../models/PurchaseOrder');
 
 function computeFileHash(filePath) {
   const buffer = fs.readFileSync(filePath);
@@ -19,6 +20,43 @@ async function checkDuplicate(fileHash, invoiceNumber, excludeId = null) {
 
 function normalizeStr(str) {
   return str ? str.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+}
+
+/**
+ * Look up a Purchase Order by its number, the way a real ERP would for a
+ * bulk-uploaded invoice — no human picks the PO, the document's own
+ * "PO Number" field (already pulled out by extractionService) is the key.
+ *
+ * Deliberately searches across *every* PO status, not just "approved" —
+ * see the poStatus check in validateAgainstPO() for why: if this only
+ * matched approved POs, an invoice referencing an already-closed PO would
+ * find nothing here and silently fall back to the much more lenient
+ * fuzzy-vendor-only path, which is exactly the "a second invoice slips
+ * through against a PO that's already done" scenario this feature exists
+ * to prevent. Returning the closed PO (so validateAgainstPO can flag it)
+ * is the safer behavior.
+ *
+ * @param {string} poNumberRaw - the PO number as OCR/extraction read it
+ * @returns {Promise<import('mongoose').Document|null>} populated PurchaseOrder, or null
+ */
+async function findPurchaseOrderByNumber(poNumberRaw) {
+  if (!poNumberRaw) return null;
+  const trimmed = String(poNumberRaw).trim();
+  if (!trimmed) return null;
+
+  // Fast path: case-insensitive exact match (handles the common case where
+  // OCR gets the characters right but not necessarily the casing).
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exact = await PurchaseOrder.findOne({ poNumber: { $regex: new RegExp(`^${escaped}$`, 'i') } }).populate('vendor');
+  if (exact) return exact;
+
+  // Fallback: normalized comparison (strips dashes/slashes/spaces) to absorb
+  // minor OCR punctuation noise, e.g. "PO 2026 00001" vs "PO-2026-00001".
+  // A full scan is fine at this project's scale; would need an indexed
+  // normalized field if the PO table grew into the tens of thousands.
+  const target = normalizeStr(trimmed);
+  const candidates = await PurchaseOrder.find({}).populate('vendor');
+  return candidates.find((p) => normalizeStr(p.poNumber) === target) || null;
 }
 
 function vendorNamesMatch(name1, name2) {
@@ -45,6 +83,23 @@ function amountsMatch(val1, val2, tolerancePct = 5) {
 function validateAgainstPO(verifiedData, purchaseOrder, vendor) {
   const discrepancies = [];
   let scorePoints = 0;
+
+  // A PO that isn't "approved" should never produce a fresh "passed" result.
+  // "closed"/"cancelled" means a previous invoice already used this PO up
+  // (closing it is exactly what invoiceController.submitMatching does the
+  // moment an invoice passes against it — see that file), so a second
+  // invoice landing on the same PO almost certainly means a duplicate or
+  // erroneous re-submission, not a real new charge. "draft" means it was
+  // never approved for spending in the first place. Either way, force a
+  // human to look rather than silently letting it through.
+  if (purchaseOrder?.status && purchaseOrder.status !== 'approved') {
+    discrepancies.push({
+      field: 'poStatus',
+      expected: 'approved',
+      actual: purchaseOrder.status,
+      severity: 'high'
+    });
+  }
 
   // Helper: get numeric value from verifiedData (supports both flat and nested)
   const getNum = (key) => {
@@ -143,4 +198,4 @@ function validateAgainstPO(verifiedData, purchaseOrder, vendor) {
   return { status, matchScore, discrepancies };
 }
 
-module.exports = { computeFileHash, checkDuplicate, validateAgainstPO };
+module.exports = { computeFileHash, checkDuplicate, validateAgainstPO, findPurchaseOrderByNumber };

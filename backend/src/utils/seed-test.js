@@ -167,7 +167,11 @@ async function seed() {
   });
 
   const acmePO2 = await PurchaseOrder.create({
-    vendor: acme._id, currency: 'INR', status: 'approved', createdBy: admin._id,
+    // "closed", not "approved" — invoice 4 below is seeded as already PASSED
+    // against this PO, and a passing invoice auto-closes its PO (see
+    // invoiceController.submitMatching) so it can't be matched a second
+    // time. Keeping this in sync with that behavior, not a leftover demo PO.
+    vendor: acme._id, currency: 'INR', status: 'closed', createdBy: admin._id,
     issueDate: new Date('2026-04-15'), expectedDelivery: new Date('2026-05-15'),
     poNumber: 'PO-ACME-002',
     notes: 'IT hardware refresh — laptops and accessories',

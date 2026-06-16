@@ -221,14 +221,24 @@ function VendorCard({ vendor, onEdit, onDelete, showEdit, showDelete }) {
         </div>
       )}
 
-      {(showEdit || showDelete) ? (
-        <div className="flex gap-2 pt-3 border-t border-ivory-100">
-          {showEdit && <button onClick={onEdit} aria-label={`Edit vendor ${vendor.name}`} className="btn-secondary flex-1 text-xs py-1.5">Edit</button>}
-          {showDelete && <button onClick={onDelete} aria-label={`Delete vendor ${vendor.name}`} className="flex-1 text-xs py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 transition-all duration-150 font-medium">Delete</button>}
-        </div>
-      ) : (
-        <p className="pt-3 border-t border-ivory-100 text-[11px] text-ivory-500 italic">Read-only — your role can't make changes here</p>
-      )}
+      <div className="pt-3 border-t border-ivory-100 space-y-2">
+        <Link
+          to={`/vendors/${vendor._id}`}
+          aria-label={`View details for ${vendor.name}`}
+          className="btn-primary w-full text-xs py-1.5 text-center"
+        >
+          View Details →
+        </Link>
+        {(showEdit || showDelete) && (
+          <div className="flex gap-2">
+            {showEdit && <button onClick={onEdit} aria-label={`Edit vendor ${vendor.name}`} className="btn-secondary flex-1 text-xs py-1.5">Edit</button>}
+            {showDelete && <button onClick={onDelete} aria-label={`Delete vendor ${vendor.name}`} className="flex-1 text-xs py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 transition-all duration-150 font-medium">Delete</button>}
+          </div>
+        )}
+        {!showEdit && !showDelete && (
+          <p className="text-[11px] text-ivory-500 italic text-center">Read-only — your role can't make changes here</p>
+        )}
+      </div>
     </div>
   );
 }

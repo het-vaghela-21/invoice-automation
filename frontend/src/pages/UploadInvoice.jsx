@@ -79,17 +79,24 @@ export default function UploadInvoice() {
         </div>
       )}
 
-      {/* PO selector */}
-      <div className="card" data-animate>
-        <label htmlFor="po-select" className="label">Link to Purchase Order</label>
-        <select id="po-select" className="input" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
-          <option value="">No PO — process without matching</option>
-          {pos.map((po) => (
-            <option key={po._id} value={po._id}>{po.poNumber} — {po.vendor?.name}</option>
-          ))}
-        </select>
-        <p className="text-xs text-ivory-600 mt-2">Linking a PO enables full validation and match scoring against expected amounts and line items.</p>
-      </div>
+      {/* PO selector — optional override, auto-detection is the default path */}
+      <details className="card" data-animate>
+        <summary className="label cursor-pointer select-none">
+          Override matched Purchase Order <span className="text-ivory-500 font-normal">(optional — click to expand)</span>
+        </summary>
+        <div className="mt-3">
+          <label htmlFor="po-select" className="sr-only">Override matched Purchase Order</label>
+          <select id="po-select" className="input" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
+            <option value="">Auto-detect from the invoice (recommended)</option>
+            {pos.map((po) => (
+              <option key={po._id} value={po._id}>{po.poNumber} — {po.vendor?.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-ivory-600 mt-2">
+            Normally you don't need this — OCR reads the PO number printed on the invoice and matches it to the right purchase order automatically. Only set this manually if the invoice doesn't show a PO number, or extraction misreads it.
+          </p>
+        </div>
+      </details>
 
       {/* Drop zone */}
       <div className="card" data-animate>
@@ -182,9 +189,9 @@ export default function UploadInvoice() {
         <ol className="text-sm text-amber-900 space-y-1.5 list-none">
           {[
             'File stored with SHA-256 hash for duplicate detection',
-            'Click "Start OCR" to extract text from the document',
+            'Click "Start OCR" to extract text — the PO number on the invoice is read automatically and linked to the matching purchase order, no manual lookup needed',
             'Review extracted fields side-by-side with the original',
-            'Submit for PO matching — receive pass, review, or reject verdict',
+            'Submit for matching — receive pass, review, or reject verdict. A passing invoice automatically closes its PO so it can\'t be matched twice',
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-2">
               <span className="font-mono text-xs font-bold text-amber-700 mt-0.5 flex-shrink-0" aria-hidden="true">0{i + 1}</span>

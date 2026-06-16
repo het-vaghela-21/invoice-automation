@@ -130,4 +130,51 @@ describe('validateAgainstPO', () => {
     const result = validateAgainstPO(verifiedData, mockPO, mockVendor);
     expect(result.status).toBe('review_required');
   });
+
+  describe('PO status guard (closed/cancelled/draft POs can never produce a fresh "passed")', () => {
+    const perfectMatchData = {
+      vendorName: 'Acme Supplies Pvt Ltd',
+      poNumber: 'PO-2026-00001',
+      totalAmount: 1000,
+      subTotal: 900,
+      currency: 'USD',
+      lineItems: [{ description: 'Widget' }, { description: 'Gadget' }],
+    };
+
+    it('passes an otherwise-perfect match when the PO is approved', () => {
+      const result = validateAgainstPO(perfectMatchData, { ...mockPO, status: 'approved' }, mockVendor);
+      expect(result.status).toBe('passed');
+      expect(result.discrepancies.find((d) => d.field === 'poStatus')).toBeUndefined();
+    });
+
+    it('forces review on an otherwise-perfect match when the PO is already closed', () => {
+      // This is the exact scenario invoiceController's auto-close exists to
+      // surface: a second invoice landing on a PO a prior invoice already
+      // closed out.
+      const result = validateAgainstPO(perfectMatchData, { ...mockPO, status: 'closed' }, mockVendor);
+      const poStatusIssue = result.discrepancies.find((d) => d.field === 'poStatus');
+      expect(poStatusIssue).toBeDefined();
+      expect(poStatusIssue.severity).toBe('high');
+      expect(poStatusIssue.actual).toBe('closed');
+      expect(result.status).toBe('review_required');
+    });
+
+    it('forces review on an otherwise-perfect match when the PO is still a draft', () => {
+      const result = validateAgainstPO(perfectMatchData, { ...mockPO, status: 'draft' }, mockVendor);
+      const poStatusIssue = result.discrepancies.find((d) => d.field === 'poStatus');
+      expect(poStatusIssue).toBeDefined();
+      expect(poStatusIssue.severity).toBe('high');
+      expect(result.status).toBe('review_required');
+    });
+
+    it('forces review when the PO is cancelled', () => {
+      const result = validateAgainstPO(perfectMatchData, { ...mockPO, status: 'cancelled' }, mockVendor);
+      expect(result.status).toBe('review_required');
+    });
+
+    it('does not add a poStatus discrepancy when status is absent (backward compatible with callers that omit it)', () => {
+      const result = validateAgainstPO(perfectMatchData, mockPO, mockVendor);
+      expect(result.discrepancies.find((d) => d.field === 'poStatus')).toBeUndefined();
+    });
+  });
 });
