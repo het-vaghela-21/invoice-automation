@@ -11,7 +11,9 @@ MongoDB collections via Mongoose. Source of truth is `backend/src/models/*.js` �
 | `name` | String | required |
 | `email` | String | required, unique, lowercased |
 | `password` | String | required, min 6 chars, `select: false` (never returned by default queries), bcrypt-hashed (12 rounds) in a `pre('save')` hook |
-| `role` | String | enum `admin`/`accountant`/`viewer`, default `accountant` |
+| `role` | String | enum `admin`/`accountant`/`viewer`, default `accountant` — enforced server-side via `authorize(...roles)`, see [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-auth--roles) |
+| `resetPasswordToken` | String | `select: false`. SHA-256 hash of the raw token sent in a password-reset link; cleared after use or expiry |
+| `resetPasswordExpire` | Date | `select: false`. 1 hour after `forgot-password` is requested |
 | `createdAt` / `updatedAt` | Date | auto (timestamps) |
 
 Instance method: `comparePassword(candidate)` → bcrypt compare.

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { poAPI, vendorAPI } from '../services/api';
+import toast from 'react-hot-toast';
+import { poAPI, vendorAPI, downloadBlob } from '../services/api';
 import Modal from '../components/Modal';
 import { usePageEntrance } from '../utils/motion';
 import { getStatusBadge } from '../utils/helpers';
+import { useAuth } from '../context/AuthContext';
+import { canWrite } from '../utils/permissions';
 
 function POModal({ onClose, onSave }) {
   const [vendors, setVendors] = useState([]);
@@ -36,7 +39,7 @@ function POModal({ onClose, onSave }) {
     setSaving(true);
     setError('');
     try {
-      await poAPI.create({
+      const res = await poAPI.create({
         ...form,
         lineItems: form.lineItems.map((item) => ({
           ...item,
@@ -44,9 +47,12 @@ function POModal({ onClose, onSave }) {
           unitPrice: parseFloat(item.unitPrice),
         }))
       });
+      toast.success(`Purchase order ${res.data.data.poNumber} created`);
       onSave();
     } catch (err) {
-      setError(err.response?.data?.message || 'Save failed');
+      const msg = err.response?.data?.message || 'Save failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -147,10 +153,13 @@ function POModal({ onClose, onSave }) {
 
 
 export default function PurchaseOrders() {
+  const { user } = useAuth();
+  const allowWrite = canWrite(user);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -162,6 +171,19 @@ export default function PurchaseOrders() {
 
   useEffect(() => { load(); }, [statusFilter]);
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await poAPI.exportCSV({ status: statusFilter || undefined });
+      downloadBlob(res.data, `purchase-orders-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.success('CSV exported');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const pageRef = usePageEntrance(!loading);
 
   return (
@@ -171,12 +193,22 @@ export default function PurchaseOrders() {
           <h1 className="font-serif text-2xl font-bold text-ink-800">Purchase Orders</h1>
           <p className="text-ivory-700 text-sm mt-0.5" aria-live="polite">{orders.length} order{orders.length !== 1 ? 's' : ''}</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary self-start sm:self-auto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Create PO
-        </button>
+        <div className="flex gap-2 self-start sm:self-auto">
+          <button onClick={handleExport} disabled={exporting || orders.length === 0} className="btn-secondary disabled:opacity-50">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5 7.5 12M12 3v13.5" />
+            </svg>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+          {allowWrite && (
+            <button onClick={() => setShowModal(true)} className="btn-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Create PO
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter */}

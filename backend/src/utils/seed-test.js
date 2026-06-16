@@ -60,14 +60,29 @@ async function seed() {
   ]);
   console.log('Cleared existing data');
 
-  // ── Admin user ──────────────────────────────────────────────────────────────
+  // ── Users — one per role, so the RBAC demo has something to show ───────────
   const admin = await User.create({
     name: 'Admin User',
     email: 'admin@company.com',
     password: 'admin123',
     role: 'admin'
   });
-  console.log('Created user: admin@company.com / admin123');
+  await User.create({
+    name: 'Asha Accountant',
+    email: 'accountant@company.com',
+    password: 'accountant123',
+    role: 'accountant'
+  });
+  await User.create({
+    name: 'Victor Viewer',
+    email: 'viewer@company.com',
+    password: 'viewer123',
+    role: 'viewer'
+  });
+  console.log('Created users:');
+  console.log('  admin@company.com       / admin123       (full access)');
+  console.log('  accountant@company.com  / accountant123  (upload, edit, match — no delete)');
+  console.log('  viewer@company.com      / viewer123       (read-only)');
 
   // ══════════════════════════════════════════════════════════════════════════
   // VENDORS  (3 — each with a distinct required-fields configuration)
@@ -629,7 +644,9 @@ async function seed() {
   console.log('\n═══════════════════════════════════════════════════════');
   console.log('  TEST DATA READY');
   console.log('═══════════════════════════════════════════════════════');
-  console.log('  Login:  admin@company.com  /  admin123');
+  console.log('  Login (admin):       admin@company.com       /  admin123');
+  console.log('  Login (accountant):  accountant@company.com  /  accountant123');
+  console.log('  Login (viewer):      viewer@company.com      /  viewer123');
   console.log('\n  Vendors (3):');
   console.log('    • Acme Supplies Pvt Ltd   — 7 required fields (incl. GST)');
   console.log('    • TechCorp Solutions       — 7 required fields (USD)');

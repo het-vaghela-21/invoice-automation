@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useNavigate, useLocation } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { invoiceAPI, poAPI } from '../services/api';
 import { usePageEntrance, pulse } from '../utils/motion';
 
@@ -51,9 +52,12 @@ export default function UploadInvoice() {
       formData.append('invoice', file);
       if (selectedPO) formData.append('purchaseOrderId', selectedPO);
       const res = await invoiceAPI.upload(formData);
+      toast.success('Invoice uploaded');
       navigate(`/invoices/${res.data.data._id}`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Upload failed');
+      const msg = err.response?.data?.message || 'Upload failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

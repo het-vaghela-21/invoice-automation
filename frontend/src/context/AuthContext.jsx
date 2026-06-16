@@ -32,8 +32,17 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Used by ResetPassword.jsx — the reset endpoint returns a token+user just
+  // like login/register (auto-signs the user in once their password is reset),
+  // but there's no email/password pair to replay through login().
+  const setUserFromToken = (token, userObj) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(userObj));
+    setUser(userObj);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, setUserFromToken, loading }}>
       {children}
     </AuthContext.Provider>
   );

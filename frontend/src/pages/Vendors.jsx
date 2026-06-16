@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { vendorAPI } from '../services/api';
 import { formatDate, getStatusBadge } from '../utils/helpers';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { usePageEntrance } from '../utils/motion';
+import { useAuth } from '../context/AuthContext';
+import { canWrite, canDelete } from '../utils/permissions';
 
 const ALL_FIELDS = [
   { fieldKey: 'vendorName',    fieldLabel: 'Vendor Name' },
@@ -49,9 +54,12 @@ function VendorModal({ vendor, onClose, onSave }) {
       const payload = { ...form, requiredFields };
       if (vendor?._id) await vendorAPI.update(vendor._id, payload);
       else await vendorAPI.create(payload);
+      toast.success(vendor?._id ? 'Vendor updated' : 'Vendor added');
       onSave();
     } catch (err) {
-      setError(err.response?.data?.message || 'Save failed');
+      const msg = err.response?.data?.message || 'Save failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -170,19 +178,19 @@ function VendorModal({ vendor, onClose, onSave }) {
   );
 }
 
-function VendorCard({ vendor, onEdit, onDelete }) {
+function VendorCard({ vendor, onEdit, onDelete, showEdit, showDelete }) {
   return (
     <div className="bg-white rounded-xl border border-ivory-300 shadow-card hover:shadow-card-hover hover:border-ivory-400 transition-all duration-200 p-5" data-animate>
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3 min-w-0">
+        <Link to={`/vendors/${vendor._id}`} className="flex items-center gap-3 min-w-0 rounded-lg group">
           <div className="w-10 h-10 bg-ink-600 rounded-xl flex items-center justify-center text-white font-serif font-bold text-lg flex-shrink-0" aria-hidden="true">
             {vendor.name[0].toUpperCase()}
           </div>
           <div className="min-w-0">
-            <h3 className="font-serif font-bold text-ink-700 truncate">{vendor.name}</h3>
+            <h3 className="font-serif font-bold text-ink-700 truncate group-hover:text-amber-800 transition-colors">{vendor.name}</h3>
             <p className="text-xs text-ivory-600 truncate">{vendor.email}</p>
           </div>
-        </div>
+        </Link>
         <span className={`${getStatusBadge(vendor.status)} ml-2 flex-shrink-0`}>{vendor.status}</span>
       </div>
 
@@ -213,19 +221,28 @@ function VendorCard({ vendor, onEdit, onDelete }) {
         </div>
       )}
 
-      <div className="flex gap-2 pt-3 border-t border-ivory-100">
-        <button onClick={onEdit} aria-label={`Edit vendor ${vendor.name}`} className="btn-secondary flex-1 text-xs py-1.5">Edit</button>
-        <button onClick={onDelete} aria-label={`Delete vendor ${vendor.name}`} className="flex-1 text-xs py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 transition-all duration-150 font-medium">Delete</button>
-      </div>
+      {(showEdit || showDelete) ? (
+        <div className="flex gap-2 pt-3 border-t border-ivory-100">
+          {showEdit && <button onClick={onEdit} aria-label={`Edit vendor ${vendor.name}`} className="btn-secondary flex-1 text-xs py-1.5">Edit</button>}
+          {showDelete && <button onClick={onDelete} aria-label={`Delete vendor ${vendor.name}`} className="flex-1 text-xs py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 transition-all duration-150 font-medium">Delete</button>}
+        </div>
+      ) : (
+        <p className="pt-3 border-t border-ivory-100 text-[11px] text-ivory-500 italic">Read-only — your role can't make changes here</p>
+      )}
     </div>
   );
 }
 
 export default function Vendors() {
+  const { user } = useAuth();
+  const allowWrite = canWrite(user);
+  const allowDelete = canDelete(user);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -234,10 +251,19 @@ export default function Vendors() {
 
   useEffect(() => { load(); }, [search]);
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this vendor? All associated data will be affected.')) return;
-    await vendorAPI.delete(id);
-    load();
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await vendorAPI.delete(deleteTarget._id);
+      toast.success(`"${deleteTarget.name}" deleted`);
+      setDeleteTarget(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const pageRef = usePageEntrance(!loading);
@@ -249,12 +275,14 @@ export default function Vendors() {
           <h1 className="font-serif text-2xl font-bold text-ink-800">Vendors</h1>
           <p className="text-ivory-700 text-sm mt-0.5">Manage vendors and their invoice field requirements</p>
         </div>
-        <button className="btn-primary self-start sm:self-auto" onClick={() => setModal('add')}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Add Vendor
-        </button>
+        {allowWrite && (
+          <button className="btn-primary self-start sm:self-auto" onClick={() => setModal('add')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add Vendor
+          </button>
+        )}
       </div>
 
       <div className="relative max-w-sm" data-animate>
@@ -283,8 +311,8 @@ export default function Vendors() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
           </svg>
           <p className="font-serif text-lg font-bold text-ink-700">No vendors yet</p>
-          <p className="text-sm">Add your first vendor to get started.</p>
-          <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>
+          <p className="text-sm">{allowWrite ? 'Add your first vendor to get started.' : 'Ask an accountant or admin to add one.'}</p>
+          {allowWrite && <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -293,7 +321,9 @@ export default function Vendors() {
               key={v._id}
               vendor={v}
               onEdit={() => setModal(v)}
-              onDelete={() => handleDelete(v._id)}
+              onDelete={() => setDeleteTarget(v)}
+              showEdit={allowWrite}
+              showDelete={allowDelete}
             />
           ))}
         </div>
@@ -304,6 +334,17 @@ export default function Vendors() {
           vendor={modal === 'add' ? null : modal}
           onClose={() => setModal(null)}
           onSave={() => { setModal(null); load(); }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete vendor?"
+          message={`"${deleteTarget.name}" will be removed. Purchase orders and invoices already linked to this vendor will keep a reference to it but it will no longer appear in lookups. This cannot be undone.`}
+          confirmLabel="Delete vendor"
+          loading={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setDeleteTarget(null)}
         />
       )}
     </div>

@@ -19,8 +19,10 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 
 ## Feature list
 
-- 🔐 JWT auth (register/login), role field modeled for future RBAC
+- 🔐 JWT auth — register/login, plus self-serve forgot/reset password
+- 🔑 **Role-based access** — admin / accountant / viewer, enforced server-side (not just hidden in the UI)
 - 🏢 **Vendor management** with per-vendor configurable "required fields" — different vendors can demand different invoice fields (e.g. GSTIN for Indian vendors, bank account for others)
+- 🔎 **Vendor drill-down** — full PO + invoice history, total spend, and flagged-invoice count per vendor
 - 📄 **Purchase orders** with line items, auto-generated PO numbers (`PO-2026-00001`), server-computed subtotal/tax/total
 - 📤 **Drag-and-drop invoice upload** (PDF/JPG/PNG, 10 MB limit)
 - 🔍 **In-process OCR** — no external API keys, no paid OCR service
@@ -28,8 +30,11 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 - ✏️ **Inline field correction** with a complete change-history audit trail
 - ✅ **PO matching engine** — transparent point-based scoring, configurable tolerance (5% on amounts), severity-tagged discrepancies
 - 🧬 **Duplicate detection** — SHA-256 file hash + invoice number, re-checked on every match run
+- 📥 **CSV export** for invoices and purchase orders (respects active filters)
+- 🛡️ **Server-side input validation** with field-level error messages (`express-validator`)
 - 📊 **Dashboard** — status breakdown, recent activity, charts
-- 📱 **Responsive UI** — works down to mobile, with a dedicated marketing landing page for logged-out visitors
+- 📱 **Responsive UI** — works down to mobile, with a dedicated marketing landing page for logged-out visitors, toast notifications, and confirm dialogs instead of native browser popups
+- 🧪 **Unit tests** for the extraction and PO-matching logic (`cd backend && npm test`)
 
 ## Tech stack
 
@@ -65,23 +70,26 @@ invoice-automation/
 │   │   ├── controllers/           # Request handlers (auth, vendor, PO, invoice, dashboard)
 │   │   ├── models/                # Mongoose schemas (User, Vendor, PurchaseOrder, Invoice)
 │   │   ├── routes/                # Route definitions, mounted in server.js
-│   │   ├── middleware/             # JWT auth guard, multer upload config, error handler
+│   │   ├── middleware/             # JWT auth guard + RBAC, validation, multer upload, error handler
+│   │   ├── validators/             # express-validator rule chains (auth, vendor, PO, invoice)
 │   │   ├── services/
 │   │   │   ├── ocrService.js          # Tesseract.js / pdf-parse dispatch
 │   │   │   ├── extractionService.js   # Regex field extraction
+│   │   │   ├── __tests__/             # Jest unit tests (extraction + matching)
 │   │   │   └── validationService.js   # PO match scoring + duplicate detection
 │   │   └── utils/
+│   │       ├── csv.js                 # Minimal CSV builder (export endpoints)
 │   │       ├── seed.js                # Minimal seed
 │   │       └── seed-test.js           # Full demo dataset (recommended)
 │   └── uploads/                    # Uploaded invoice files (local disk)
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/                  # Landing, Login, Register, Dashboard, Vendors,
-│   │   │                           #  PurchaseOrders(+Detail/New), Invoices(+Detail), UploadInvoice
-│   │   ├── components/             # Layout (sidebar/nav), Modal
+│   │   ├── pages/                  # Landing, Login, Register, Forgot/ResetPassword, Dashboard,
+│   │   │                           #  Vendors(+Detail), PurchaseOrders(+Detail/New), Invoices(+Detail), UploadInvoice
+│   │   ├── components/             # Layout (sidebar/nav), Modal, ConfirmDialog
 │   │   ├── context/AuthContext.jsx # Auth state, localStorage-backed
 │   │   ├── services/api.js         # Axios instance + per-resource API wrappers
-│   │   └── utils/                  # helpers (status badges, formatting), motion (page transitions)
+│   │   └── utils/                  # helpers, permissions (RBAC UI rules), motion (page transitions)
 │   └── vite.config.js              # Dev proxy: /api, /uploads → localhost:5000
 └── docs/
     ├── ARCHITECTURE.md             # System design, state machine, extraction/matching internals
@@ -108,7 +116,13 @@ npm run dev                 # backend → http://localhost:5000
 cd ../frontend && npm run dev   # frontend → http://localhost:5173
 ```
 
-**Demo login:** `admin@company.com` / `admin123`
+**Demo logins** (one per role):
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@company.com` | `admin123` |
+| Accountant | `accountant@company.com` | `accountant123` |
+| Viewer | `viewer@company.com` | `viewer123` |
 
 Full prerequisites, environment variable reference, and troubleshooting: [`docs/SETUP.md`](docs/SETUP.md).
 
@@ -116,11 +130,13 @@ Full prerequisites, environment variable reference, and troubleshooting: [`docs/
 
 | Resource | Endpoints |
 |---|---|
-| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` |
-| Vendors | `GET/POST /api/vendors`, `GET/PUT/DELETE /api/vendors/:id` |
-| Purchase Orders | `GET/POST /api/purchase-orders`, `GET/PUT /api/purchase-orders/:id` |
-| Invoices | `GET/POST /api/invoices`, `GET/DELETE /api/invoices/:id`, `POST /api/invoices/:id/ocr`, `PATCH /api/invoices/:id/fields`, `POST /api/invoices/:id/match`, `POST /api/invoices/:id/reject` |
+| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password/:token` |
+| Vendors | `GET/POST /api/vendors`, `GET/PUT/DELETE /api/vendors/:id`, `GET /api/vendors/:id/summary` |
+| Purchase Orders | `GET/POST /api/purchase-orders`, `GET/PUT /api/purchase-orders/:id`, `GET /api/purchase-orders/export` |
+| Invoices | `GET/POST /api/invoices`, `GET/DELETE /api/invoices/:id`, `POST /api/invoices/:id/ocr`, `PATCH /api/invoices/:id/fields`, `POST /api/invoices/:id/match`, `POST /api/invoices/:id/reject`, `GET /api/invoices/export` |
 | Dashboard | `GET /api/dashboard/stats` |
+
+Writes are role-gated (`accountant`/`admin`); deletes are `admin`-only; everything else just needs to be logged in. See [`docs/ARCHITECTURE.md §7`](docs/ARCHITECTURE.md#7-auth--roles).
 
 Full request/response examples and error codes: [`docs/API.md`](docs/API.md).
 
@@ -139,8 +155,9 @@ Each transition is a distinct user-triggered action (upload → start OCR → sa
 - OCR runs synchronously within the request — fine at current scale, would need a job queue for high-volume concurrent processing.
 - No scanned-PDF (image-only) → OCR fallback yet; only PDFs with an embedded text layer extract text via `pdf-parse`.
 - Field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. This is the intentional seam for plugging in a real model (see "Designed extension point" in `docs/ARCHITECTURE.md`).
-- `role` (admin/accountant/viewer) is modeled on `User` but not yet enforced on any route.
+- No real email delivery for password resets — the reset link is returned directly by the API outside production, since no SMTP service is configured for this demo.
 - Uploaded files live on local disk, not object storage.
+- Test coverage is limited to the pure extraction/matching logic — no integration tests against a live DB/HTTP layer yet.
 
 ## Contributing / extending
 

@@ -85,7 +85,16 @@ npm run dev
 
 Open `http://localhost:5173` and log in with `admin@company.com` / `admin123`.
 
-## 6. Production build
+## 6. Run tests
+
+```bash
+cd backend
+npm test
+```
+
+Covers `extractionService.js` (the regex field extractors — including regression tests for the real bugs documented in [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-extraction-layer-backendsrcservicesextractionservicejs)) and `validationService.js` (the PO match-scoring algorithm). Both are pure functions with no DB dependency, so the suite runs in under a second with no MongoDB connection required.
+
+## 7. Production build
 
 ```bash
 cd frontend

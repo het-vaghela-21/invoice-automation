@@ -31,9 +31,9 @@ Create a user account and receive a token immediately (no email verification ste
 
 Request body:
 ```json
-{ "name": "Jane Doe", "email": "jane@company.com", "password": "secret123", "role": "accountant" }
+{ "name": "Jane Doe", "email": "jane@company.com", "password": "secret123" }
 ```
-`role` is optional — defaults to `accountant`. Allowed values: `admin`, `accountant`, `viewer` (role is stored but not yet enforced on any route).
+Validated: `name` required, `email` required + valid format, `password` ≥ 6 chars. Every self-registered account is created with `role: "accountant"` — **a `role` field in the request body is silently ignored**, not honored. (`admin`/`viewer` accounts are seeded directly, not created through this endpoint — see [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-auth--roles).)
 
 Response `201`:
 ```json
@@ -43,6 +43,7 @@ Response `201`:
   "user": { "id": "...", "name": "Jane Doe", "email": "jane@company.com", "role": "accountant" }
 }
 ```
+`400` on validation failure: `{ "success": false, "message": "...", "errors": [{ "field": "email", "message": "Must be a valid email address" }] }`.
 
 ### `POST /api/auth/login`
 ```json
@@ -56,9 +57,31 @@ Requires auth. Returns the currently authenticated user (no password field).
 { "success": true, "user": { "_id": "...", "name": "...", "email": "...", "role": "..." } }
 ```
 
+### `POST /api/auth/forgot-password`
+```json
+{ "email": "admin@company.com" }
+```
+Always responds `200` with the same generic message, whether or not the email is registered (prevents account enumeration):
+```json
+{ "success": true, "message": "If that email is registered, a password reset link has been generated." }
+```
+Outside `NODE_ENV=production`, a `resetUrl` field is also included in the response (no SMTP service is configured for this project — see [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-auth--roles)). The same link is logged server-side regardless of environment.
+
+### `POST /api/auth/reset-password/:token`
+`:token` is the raw token from the `resetUrl` (not the hash stored in the DB).
+```json
+{ "password": "newSecret123" }
+```
+`400` with `{"message":"Reset link is invalid or has expired"}` if the token doesn't match, is already used, or is past its 1-hour expiry. On success, behaves like login/register — returns a token and auto-signs the user in:
+```json
+{ "success": true, "token": "...", "user": { "id": "...", "name": "...", "email": "...", "role": "..." } }
+```
+
 ---
 
 ## Vendors
+
+Reads need any authenticated role. `POST`/`PUT` need `accountant` or `admin`. `DELETE` is `admin`-only — see [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-auth--roles).
 
 ### `GET /api/vendors`
 Query params: `search` (full-text on name/email), `status` (`active`|`inactive`), `page`, `limit` (default 20).
@@ -71,8 +94,28 @@ Response `200`:
 ### `GET /api/vendors/:id`
 Returns a single vendor or `404`.
 
+### `GET /api/vendors/:id/summary`
+Drill-down view powering the Vendor Detail page — the vendor plus its full PO/invoice history and rolled-up totals:
+```json
+{
+  "success": true,
+  "data": {
+    "vendor": { /* Vendor */ },
+    "purchaseOrders": [ /* PurchaseOrder[], newest first */ ],
+    "invoices": [ /* Invoice[] (no ocrText/processingLog/fieldChanges), newest first */ ],
+    "stats": {
+      "totalPOs": 3, "totalInvoices": 2,
+      "totalPOValue": 32145.75, "totalInvoiced": 26105,
+      "flaggedInvoices": 1,
+      "statusBreakdown": [ { "_id": "passed", "count": 1 }, ... ]
+    }
+  }
+}
+```
+`totalPOValue` sums `PurchaseOrder.totalAmount`; `totalInvoiced` sums each invoice's verified (or else extracted) `totalAmount`; `flaggedInvoices` counts invoices in `review_required` or `rejected`.
+
 ### `POST /api/vendors`
-Body — see [DATA_MODELS.md](./DATA_MODELS.md#vendor) for the full shape. Minimum required: `name`, `email`.
+Body — see [DATA_MODELS.md](./DATA_MODELS.md#vendor) for the full shape. Validated: `name` and `email` required (`email` must be a valid address), `status` if present must be `active`/`inactive`.
 ```json
 {
   "name": "Acme Supplies Pvt Ltd",
@@ -85,10 +128,10 @@ Body — see [DATA_MODELS.md](./DATA_MODELS.md#vendor) for the full shape. Minim
   ]
 }
 ```
-`requiredFields` drives which fields are shown as "required" (and validated more strictly in the UI) when reviewing an invoice tied to this vendor. Response `201` with the created vendor.
+`requiredFields` drives which fields are shown as "required" (and validated more strictly in the UI) when reviewing an invoice tied to this vendor. Response `201` with the created vendor. `400` on validation failure (same `errors[]` shape as auth).
 
 ### `PUT /api/vendors/:id`
-Same body shape as create, partial updates allowed. Runs schema validators. `404` if not found.
+Same body shape and validation as create, partial updates allowed. `404` if not found.
 
 ### `DELETE /api/vendors/:id`
 `{ "success": true, "message": "Vendor deleted" }`. Does **not** cascade-delete related POs/invoices — they keep a now-dangling `vendor` reference.
@@ -97,13 +140,19 @@ Same body shape as create, partial updates allowed. Runs schema validators. `404
 
 ## Purchase Orders
 
+Reads need any authenticated role. `POST`/`PUT` need `accountant` or `admin`.
+
 ### `GET /api/purchase-orders`
 Query params: `vendor` (ObjectId), `status` (`draft`|`approved`|`closed`|`cancelled`), `page`, `limit`.
+
+### `GET /api/purchase-orders/export`
+Same filters as the list endpoint (`vendor`, `status`), no pagination — returns every matching row. Response is `text/csv` with a `Content-Disposition: attachment` header (PO number, vendor, dates, line item count, subtotal/tax/total, currency, status, created date).
 
 ### `GET /api/purchase-orders/:id`
 Populates `vendor`.
 
 ### `POST /api/purchase-orders`
+Validated: `vendor` required + must be a valid ObjectId, `lineItems` must be a non-empty array with a `description`, `quantity` (> 0), and `unitPrice` (≥ 0) per item, `taxRate` (if present) 0–100, `currency` (if present) exactly 3 letters, `status` (if present) one of the enum values.
 ```json
 {
   "vendor": "<vendorId>",
@@ -117,17 +166,22 @@ Populates `vendor`.
   ]
 }
 ```
-The server computes `subTotal`, `tax` (from `taxRate`), `totalAmount`, and each line item's `totalPrice` — don't send those, they're derived. `poNumber` is auto-generated (`PO-<year>-<00001>`) if omitted. Response `201`.
+The server computes `subTotal`, `tax` (from `taxRate`), `totalAmount`, and each line item's `totalPrice` — don't send those, they're derived. `poNumber` is auto-generated (`PO-<year>-<00001>`) if omitted. Response `201`. `400` on validation failure.
 
 ### `PUT /api/purchase-orders/:id`
-Partial update, runs validators. Note: unlike create, this does **not** recompute totals from `lineItems`/`taxRate` if you send them — it's a direct `findByIdAndUpdate`.
+Partial update — same field rules as create but every field is optional (only validated when present). Note: unlike create, this does **not** recompute totals from `lineItems`/`taxRate` if you send them — it's a direct `findByIdAndUpdate`.
 
 ---
 
 ## Invoices
 
+Reads need any authenticated role. Upload/OCR/field-edit/match/reject need `accountant` or `admin`. `DELETE` is `admin`-only.
+
 ### `GET /api/invoices`
 Query params: `status`, `vendor`, `purchaseOrder`, `page`, `limit` (default 20). List items omit `ocrText` and `processingLog` for payload size; fetch a single invoice for those.
+
+### `GET /api/invoices/export`
+Same filters as the list endpoint (`status`, `vendor`, `purchaseOrder`), no pagination — returns every matching row as `text/csv` with a `Content-Disposition: attachment` header (invoice number, vendor, PO number, total amount, currency, status, match score, discrepancy count, filename, upload date). Uses verified values where present, falling back to the OCR-extracted value.
 
 ### `GET /api/invoices/:id`
 Full invoice document — `extractedData`, `userVerifiedData`, `fieldChanges` (with `changedBy` populated), `validationResult`, `processingLog`, populated `vendor` and `purchaseOrder.vendor`.
@@ -148,7 +202,7 @@ No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable)
 ```json
 { "fields": { "vendorName": "Acme Supplies Pvt Ltd", "totalAmount": 56640 } }
 ```
-Only valid when `status` is `ocr_extracted`, `pending_review`, or `review_required`. Diffs each key against the current baseline (verified value if present, else the OCR-extracted value) and appends an entry to `fieldChanges` for anything that actually changed (full before/after + who + when). `status → pending_review`. Returns the populated invoice.
+Only valid when `status` is `ocr_extracted`, `pending_review`, or `review_required`. `fields` is validated as required and must be a non-empty object — `{}` or a missing `fields` key returns `400`. Diffs each key against the current baseline (verified value if present, else the OCR-extracted value) and appends an entry to `fieldChanges` for anything that actually changed (full before/after + who + when). `status → pending_review`. Returns the populated invoice.
 
 ### `POST /api/invoices/:id/match` — run PO matching
 No body. Only valid in the same three statuses as above. Merges `userVerifiedData` over `extractedData`, re-runs the duplicate check, and:
@@ -195,8 +249,8 @@ No body. Only valid in the same three statuses as above. Merges `userVerifiedDat
 
 | Status | Cause |
 |---|---|
-| 400 | Missing required body field, Mongoose validation error, invalid action for current invoice status, duplicate-key on a unique field (e.g. email) |
+| 400 | `express-validator` rejection (see `errors[]` in the response body), Mongoose validation error, invalid action for current invoice status, duplicate-key on a unique field (e.g. email), expired/invalid password-reset token |
 | 401 | No token, invalid/expired token, bad login credentials |
-| 403 | Role not authorized (middleware exists, not currently applied to any route) |
+| 403 | Role not authorized for this action — e.g. a `viewer` attempting any write, or a non-`admin` attempting a delete |
 | 404 | Resource not found by ID |
 | 500 | Unhandled error (OCR engine failure, DB connection issue, etc.) — includes `stack` only when `NODE_ENV=development` |

@@ -23,12 +23,15 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (data) => api.post('/auth/login', data),
   register: (data) => api.post('/auth/register', data),
-  getMe: () => api.get('/auth/me')
+  getMe: () => api.get('/auth/me'),
+  forgotPassword: (data) => api.post('/auth/forgot-password', data),
+  resetPassword: (token, data) => api.post(`/auth/reset-password/${token}`, data)
 };
 
 export const vendorAPI = {
   getAll: (params) => api.get('/vendors', { params }),
   getOne: (id) => api.get(`/vendors/${id}`),
+  getSummary: (id) => api.get(`/vendors/${id}/summary`),
   create: (data) => api.post('/vendors', data),
   update: (id, data) => api.put(`/vendors/${id}`, data),
   delete: (id) => api.delete(`/vendors/${id}`)
@@ -38,7 +41,8 @@ export const poAPI = {
   getAll: (params) => api.get('/purchase-orders', { params }),
   getOne: (id) => api.get(`/purchase-orders/${id}`),
   create: (data) => api.post('/purchase-orders', data),
-  update: (id, data) => api.put(`/purchase-orders/${id}`, data)
+  update: (id, data) => api.put(`/purchase-orders/${id}`, data),
+  exportCSV: (params) => api.get('/purchase-orders/export', { params, responseType: 'blob' })
 };
 
 export const invoiceAPI = {
@@ -49,7 +53,21 @@ export const invoiceAPI = {
   updateFields:   (id, fields) => api.patch(`/invoices/${id}/fields`, { fields }),
   submitMatching: (id) => api.post(`/invoices/${id}/match`),
   rejectInvoice:  (id, reason) => api.post(`/invoices/${id}/reject`, { reason }),
-  delete:         (id) => api.delete(`/invoices/${id}`)
+  delete:         (id) => api.delete(`/invoices/${id}`),
+  exportCSV:      (params) => api.get('/invoices/export', { params, responseType: 'blob' })
+};
+
+// Triggers a browser download for a blob response returned by one of the
+// exportCSV() calls above. Kept here (not in a component) so any page can reuse it.
+export const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 export const dashboardAPI = {

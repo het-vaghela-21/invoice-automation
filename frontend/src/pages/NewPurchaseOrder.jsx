@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { poAPI, vendorAPI } from '../services/api';
 import { formatCurrency } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
@@ -40,9 +41,12 @@ export default function NewPurchaseOrder() {
     setError('');
     try {
       const res = await poAPI.create({ ...form, lineItems: form.lineItems.map(i => ({ ...i, quantity: parseFloat(i.quantity), unitPrice: parseFloat(i.unitPrice), totalPrice: parseFloat(i.quantity) * parseFloat(i.unitPrice) })) });
+      toast.success(`Purchase order ${res.data.data.poNumber} created`);
       navigate(`/purchase-orders/${res.data.data._id}`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create PO');
+      const msg = err.response?.data?.message || 'Failed to create PO';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

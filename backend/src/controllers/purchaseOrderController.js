@@ -1,4 +1,5 @@
 const PurchaseOrder = require('../models/PurchaseOrder');
+const { toCSV } = require('../utils/csv');
 
 exports.getPurchaseOrders = async (req, res, next) => {
   try {
@@ -57,5 +58,36 @@ exports.updatePurchaseOrder = async (req, res, next) => {
     const po = await PurchaseOrder.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('vendor', 'name email');
     if (!po) return res.status(404).json({ success: false, message: 'Purchase order not found' });
     res.json({ success: true, data: po });
+  } catch (err) { next(err); }
+};
+
+// Export the (optionally filtered) PO list as CSV — same filters as getPurchaseOrders.
+exports.exportPurchaseOrdersCSV = async (req, res, next) => {
+  try {
+    const { vendor, status } = req.query;
+    const query = {};
+    if (vendor) query.vendor = vendor;
+    if (status) query.status = status;
+
+    const pos = await PurchaseOrder.find(query).populate('vendor', 'name').sort({ createdAt: -1 });
+
+    const columns = [
+      { key: (p) => p.poNumber || '', label: 'PO Number' },
+      { key: (p) => p.vendor?.name || '', label: 'Vendor' },
+      { key: (p) => p.issueDate ? p.issueDate.toISOString().slice(0, 10) : '', label: 'Issue Date' },
+      { key: (p) => p.expectedDelivery ? p.expectedDelivery.toISOString().slice(0, 10) : '', label: 'Expected Delivery' },
+      { key: (p) => p.lineItems?.length ?? 0, label: 'Line Items' },
+      { key: (p) => p.subTotal, label: 'Subtotal' },
+      { key: (p) => p.tax, label: 'Tax' },
+      { key: (p) => p.totalAmount, label: 'Total Amount' },
+      { key: (p) => p.currency, label: 'Currency' },
+      { key: (p) => p.status, label: 'Status' },
+      { key: (p) => p.createdAt?.toISOString() || '', label: 'Created At' },
+    ];
+
+    const csv = toCSV(pos, columns);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="purchase-orders-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
   } catch (err) { next(err); }
 };

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { invoiceAPI } from '../services/api';
 import { getStatusBadge, getScoreColor } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
+import { useAuth } from '../context/AuthContext';
+import { canWrite } from '../utils/permissions';
 
 const FIELD_META = {
   vendorName:    { label: 'Vendor Name',    type: 'text' },
@@ -124,6 +127,8 @@ function StatusBar({ status }) {
 
 export default function InvoiceDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const allowWrite = canWrite(user);
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -177,8 +182,11 @@ export default function InvoiceDetail() {
       });
       setEditedFields(init);
       setChangedKeys(new Set());
+      toast.success('OCR complete — review the extracted fields');
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || 'OCR failed');
+      const msg = err.response?.data?.message || err.response?.data?.error || 'OCR failed';
+      setError(msg);
+      toast.error(msg);
     } finally { setOcrLoading(false); }
   };
 
@@ -193,9 +201,13 @@ export default function InvoiceDetail() {
       });
       const res = await invoiceAPI.updateFields(id, fieldsToSave);
       setInvoice(res.data.data);
+      const savedCount = changedKeys.size;
       setChangedKeys(new Set());
+      toast.success(`Saved ${savedCount} field${savedCount !== 1 ? 's' : ''}`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Save failed');
+      const msg = err.response?.data?.message || 'Save failed';
+      setError(msg);
+      toast.error(msg);
     } finally { setSaveLoading(false); }
   };
 
@@ -212,8 +224,13 @@ export default function InvoiceDetail() {
       const res = await invoiceAPI.submitMatching(id);
       setInvoice(res.data.data);
       setChangedKeys(new Set());
+      const vr = res.data.data.validationResult;
+      if (vr?.status === 'passed') toast.success(`Matched — ${vr.matchScore}% score`);
+      else toast.error(`Review required — ${vr?.matchScore ?? 0}% score, ${vr?.discrepancies?.length ?? 0} issue(s)`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Matching failed');
+      const msg = err.response?.data?.message || 'Matching failed';
+      setError(msg);
+      toast.error(msg);
     } finally { setMatchLoading(false); }
   };
 
@@ -221,9 +238,12 @@ export default function InvoiceDetail() {
     setError('');
     try {
       await invoiceAPI.rejectInvoice(id, rejectReason);
+      toast.success('Invoice rejected');
       load();
     } catch (err) {
-      setError(err.response?.data?.message || 'Reject failed');
+      const msg = err.response?.data?.message || 'Reject failed';
+      setError(msg);
+      toast.error(msg);
     }
   };
 
@@ -399,22 +419,28 @@ export default function InvoiceDetail() {
               )}
             </div>
 
-            <button onClick={handleOCR} disabled={ocrLoading} className="btn-primary w-full py-3 text-base">
-              {ocrLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Running OCR…
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
-                  </svg>
-                  Start OCR Processing
-                </span>
-              )}
-            </button>
+            {allowWrite ? (
+              <button onClick={handleOCR} disabled={ocrLoading} className="btn-primary w-full py-3 text-base">
+                {ocrLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Running OCR…
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM16.5 6.75h.75v.75h-.75v-.75zM13.5 13.5h.75v.75h-.75v-.75zM13.5 19.5h.75v.75h-.75v-.75zM19.5 13.5h.75v.75h-.75v-.75zM19.5 19.5h.75v.75h-.75v-.75zM16.5 16.5h.75v.75h-.75v-.75z" />
+                    </svg>
+                    Start OCR Processing
+                  </span>
+                )}
+              </button>
+            ) : (
+              <p className="text-center text-sm text-ivory-500 italic py-3 border border-ivory-200 rounded-xl bg-ivory-50">
+                Read-only — ask an accountant or admin to process this invoice.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -519,7 +545,8 @@ export default function InvoiceDetail() {
                         <input
                           id={`field-${key}`}
                           type="text"
-                          className={`input text-sm font-mono ${
+                          disabled={!allowWrite}
+                          className={`input text-sm font-mono disabled:bg-ivory-100 disabled:text-ivory-600 disabled:cursor-not-allowed ${
                             hasDiscrepancy ? 'border-red-300 focus:ring-red-300' :
                             isChanged ? 'border-amber-300 focus:ring-amber-300' : ''
                           }`}
@@ -556,7 +583,8 @@ export default function InvoiceDetail() {
                         <input
                           id={`field-other-${key}`}
                           type="text"
-                          className={`input text-sm font-mono py-1.5 ${isChanged ? 'border-amber-300' : ''}`}
+                          disabled={!allowWrite}
+                          className={`input text-sm font-mono py-1.5 disabled:bg-ivory-100 disabled:text-ivory-600 disabled:cursor-not-allowed ${isChanged ? 'border-amber-300' : ''}`}
                           value={editedFields[key] ?? ''}
                           onChange={(e) => handleFieldChange(key, e.target.value)}
                           placeholder="—"
@@ -592,46 +620,52 @@ export default function InvoiceDetail() {
             </div>
 
             {/* Action buttons */}
-            <div className="flex-shrink-0 pt-3 border-t border-ivory-200 space-y-2 mt-2">
-              {invoice.status === 'review_required' && (
-                <>
-                  {!showRejectInput ? (
-                    <button onClick={() => setShowRejectInput(true)} className="btn-danger w-full text-sm">
-                      Reject Invoice
-                    </button>
-                  ) : (
-                    <div className="space-y-2">
-                      <input
-                        className="input text-sm"
-                        placeholder="Reason for rejection (optional)"
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                      />
-                      <div className="flex gap-2">
-                        <button onClick={handleReject} className="btn-danger flex-1 text-sm">Confirm Reject</button>
-                        <button onClick={() => setShowRejectInput(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+            {allowWrite ? (
+              <div className="flex-shrink-0 pt-3 border-t border-ivory-200 space-y-2 mt-2">
+                {invoice.status === 'review_required' && (
+                  <>
+                    {!showRejectInput ? (
+                      <button onClick={() => setShowRejectInput(true)} className="btn-danger w-full text-sm">
+                        Reject Invoice
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          className="input text-sm"
+                          placeholder="Reason for rejection (optional)"
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={handleReject} className="btn-danger flex-1 text-sm">Confirm Reject</button>
+                          <button onClick={() => setShowRejectInput(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </>
-              )}
-              <div className="flex gap-2">
-                {changedKeys.size > 0 && (
-                  <button onClick={handleSave} disabled={saveLoading} className="btn-secondary flex-1 text-sm">
-                    {saveLoading ? 'Saving…' : `Save (${changedKeys.size})`}
-                  </button>
+                    )}
+                  </>
                 )}
-                <button onClick={handleMatch} disabled={matchLoading} className="btn-primary flex-1 text-sm">
-                  {matchLoading ? (
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                      Matching…
-                    </span>
-                  ) : invoice.status === 'review_required' ? 'Re-run Matching' : 'Submit for Matching'}
-                </button>
+                <div className="flex gap-2">
+                  {changedKeys.size > 0 && (
+                    <button onClick={handleSave} disabled={saveLoading} className="btn-secondary flex-1 text-sm">
+                      {saveLoading ? 'Saving…' : `Save (${changedKeys.size})`}
+                    </button>
+                  )}
+                  <button onClick={handleMatch} disabled={matchLoading} className="btn-primary flex-1 text-sm">
+                    {matchLoading ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        Matching…
+                      </span>
+                    ) : invoice.status === 'review_required' ? 'Re-run Matching' : 'Submit for Matching'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-ivory-600 text-center">Unsaved edits are saved automatically before matching</p>
               </div>
-              <p className="text-[10px] text-ivory-600 text-center">Unsaved edits are saved automatically before matching</p>
-            </div>
+            ) : (
+              <p className="flex-shrink-0 mt-2 text-center text-sm text-ivory-500 italic py-3 border-t border-ivory-200">
+                Read-only — ask an accountant or admin to edit or submit this invoice.
+              </p>
+            )}
           </div>
         </div>
       )}

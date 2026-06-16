@@ -5,6 +5,7 @@ const Vendor = require('../models/Vendor');
 const { extractText } = require('../services/ocrService');
 const { extractInvoiceData } = require('../services/extractionService');
 const { computeFileHash, checkDuplicate, validateAgainstPO } = require('../services/validationService');
+const { toCSV } = require('../utils/csv');
 
 // Helper: flatten extractedData into a key→value map for matching
 function flattenExtracted(extractedData) {
@@ -303,5 +304,42 @@ exports.deleteInvoice = async (req, res, next) => {
     const invoice = await Invoice.findByIdAndDelete(req.params.id);
     if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
     res.json({ success: true, message: 'Invoice deleted' });
+  } catch (err) { next(err); }
+};
+
+// Export the (optionally filtered) invoice list as CSV — same filters as getInvoices,
+// but no pagination, since the point is to get everything into a spreadsheet at once.
+exports.exportInvoicesCSV = async (req, res, next) => {
+  try {
+    const { status, vendor, purchaseOrder } = req.query;
+    const query = {};
+    if (status) query.status = status;
+    if (vendor) query.vendor = vendor;
+    if (purchaseOrder) query.purchaseOrder = purchaseOrder;
+
+    const invoices = await Invoice.find(query)
+      .populate('vendor', 'name')
+      .populate('purchaseOrder', 'poNumber')
+      .sort({ createdAt: -1 })
+      .select('-ocrText -processingLog -fieldChanges');
+
+    const verified = (inv, key) => inv.userVerifiedData?.[key];
+    const columns = [
+      { key: (i) => i.invoiceNumber || '', label: 'Invoice Number' },
+      { key: (i) => i.vendor?.name || '', label: 'Vendor' },
+      { key: (i) => i.purchaseOrder?.poNumber || '', label: 'PO Number' },
+      { key: (i) => verified(i, 'totalAmount') ?? i.extractedData?.totalAmount?.value ?? '', label: 'Total Amount' },
+      { key: (i) => verified(i, 'currency') ?? i.extractedData?.currency?.value ?? '', label: 'Currency' },
+      { key: (i) => i.status, label: 'Status' },
+      { key: (i) => i.validationResult?.matchScore ?? '', label: 'Match Score (%)' },
+      { key: (i) => i.validationResult?.discrepancies?.length ?? 0, label: 'Discrepancies' },
+      { key: (i) => i.uploadedFile?.originalName || '', label: 'File' },
+      { key: (i) => i.createdAt?.toISOString() || '', label: 'Uploaded At' },
+    ];
+
+    const csv = toCSV(invoices, columns);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="invoices-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
   } catch (err) { next(err); }
 };

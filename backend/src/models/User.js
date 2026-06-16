@@ -25,7 +25,12 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['admin', 'accountant', 'viewer'],
       default: 'accountant'
-    }
+    },
+    // Set by /auth/forgot-password, cleared on successful /auth/reset-password/:token
+    // or whenever they expire. The stored value is a SHA-256 hash of the raw token
+    // that's actually emailed/shown to the user — see authController.forgotPassword.
+    resetPasswordToken: { type: String, select: false },
+    resetPasswordExpire: { type: Date, select: false }
   },
   { timestamps: true }
 );

@@ -95,7 +95,10 @@ export default function Login() {
                 />
               </div>
               <div>
-                <label htmlFor="login-password" className="label">Password</label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="login-password" className="label">Password</label>
+                  <Link to="/forgot-password" className="text-xs text-amber-800 hover:text-amber-900 font-medium rounded">Forgot password?</Link>
+                </div>
                 <input
                   id="login-password"
                   className="input"
@@ -125,8 +128,11 @@ export default function Login() {
             </form>
           </div>
 
-          <div className="mt-6 p-3 bg-ivory-200 border border-ivory-300 rounded-lg text-xs text-ivory-700 text-center">
-            Demo: <span className="font-mono">admin@company.com</span> / <span className="font-mono">admin123</span>
+          <div className="mt-6 p-3 bg-ivory-200 border border-ivory-300 rounded-lg text-xs text-ivory-700 space-y-1.5">
+            <p className="font-semibold text-ivory-800 text-center mb-1">Demo accounts (one per role)</p>
+            <p><span className="font-semibold">Admin</span> — <span className="font-mono break-all">admin@company.com / admin123</span></p>
+            <p><span className="font-semibold">Accountant</span> — <span className="font-mono break-all">accountant@company.com / accountant123</span></p>
+            <p><span className="font-semibold">Viewer</span> — <span className="font-mono break-all">viewer@company.com / viewer123</span></p>
           </div>
         </div>
       </main>

@@ -13,9 +13,14 @@ function extractInvoiceNumber(text) {
 }
 
 function extractVendorName(text) {
-  // Use [ \t] instead of \s so newlines don't bleed into the next line
+  // Use [ \t] instead of \s so newlines don't bleed into the next line.
+  // The stop-words after the lazy capture need \b word boundaries — without
+  // them, a name like "TechCorp" stops at "Tech" because "Corp" matches
+  // as a bare substring inside the name itself, not just as a real suffix
+  // word (e.g. "Acme Ltd"). \b ensures "corp"/"ltd"/etc only end the
+  // capture when they appear as their own word.
   const patterns = [
-    /from\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50}?)(?:\n|ltd|llc|inc|corp|co\.)/i,
+    /from\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50}?)(?:\n|\b(?:ltd|llc|inc|corp|co\.)\b)/i,
     /billed?\s*(?:from|by)\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
     /seller\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
     /vendor\s*[:\-]?\s*([A-Za-z0-9 \t&.,'-]{3,50})/i,
