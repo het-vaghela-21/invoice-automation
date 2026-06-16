@@ -5,6 +5,7 @@
 export const canWrite = (user) => user?.role === 'admin' || user?.role === 'accountant';
 export const canDelete = (user) => user?.role === 'admin';
 export const isViewer = (user) => user?.role === 'viewer';
+export const isAdmin = (user) => user?.role === 'admin';
 
 export const ROLE_LABELS = {
   admin: 'Admin',

@@ -74,4 +74,10 @@ export const dashboardAPI = {
   getStats: () => api.get('/dashboard/stats')
 };
 
+// Admin-only — see backend/src/routes/userRoutes.js
+export const userAPI = {
+  getAll: () => api.get('/users'),
+  updateRole: (id, role) => api.patch(`/users/${id}/role`, { role })
+};
+
 export default api;

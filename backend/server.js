@@ -9,6 +9,7 @@ const vendorRoutes = require('./src/routes/vendorRoutes');
 const purchaseOrderRoutes = require('./src/routes/purchaseOrderRoutes');
 const invoiceRoutes = require('./src/routes/invoiceRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const userRoutes = require('./src/routes/userRoutes');
 const errorHandler = require('./src/middleware/errorHandler');
 
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api/vendors', vendorRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/users', userRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

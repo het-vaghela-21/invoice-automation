@@ -245,6 +245,24 @@ No body. Only valid in the same three statuses as above. Merges `userVerifiedDat
 
 ---
 
+## Users (admin-only)
+
+Every route below requires the `admin` role — there is exactly one fixed admin account in this system (`admin@company.com`, provisioned via `seed-test.js`), so these are the admin's tools for managing everyone else. See [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-auth--roles).
+
+### `GET /api/users`
+Lists every user, newest first.
+```json
+{ "success": true, "data": [ { "_id": "...", "name": "...", "email": "...", "role": "accountant", "createdAt": "..." }, ... ] }
+```
+
+### `PATCH /api/users/:id/role`
+```json
+{ "role": "viewer" }
+```
+`role` must be `"accountant"` or `"viewer"` — **`"admin"` is rejected by validation**, and a `400` is returned if the target user already has the `admin` role (the admin account's role can never be changed through this endpoint, by design, not just by convention). Response `200` with the updated user.
+
+---
+
 ## Error reference
 
 | Status | Cause |

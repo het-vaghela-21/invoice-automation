@@ -20,7 +20,7 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 ## Feature list
 
 - 🔐 JWT auth — register/login, plus self-serve forgot/reset password
-- 🔑 **Role-based access** — admin / accountant / viewer, enforced server-side (not just hidden in the UI)
+- 🔑 **Role-based access** — admin / accountant / viewer, enforced server-side (not just hidden in the UI). A single fixed admin account assigns Accountant/Viewer to everyone who registers, from a Team & Roles page
 - 🏢 **Vendor management** with per-vendor configurable "required fields" — different vendors can demand different invoice fields (e.g. GSTIN for Indian vendors, bank account for others)
 - 🔎 **Vendor drill-down** — full PO + invoice history, total spend, and flagged-invoice count per vendor
 - 📄 **Purchase orders** with line items, auto-generated PO numbers (`PO-2026-00001`), server-computed subtotal/tax/total
@@ -67,11 +67,11 @@ invoice-automation/
 ├── backend/
 │   ├── server.js                  # Express app entry point
 │   ├── src/
-│   │   ├── controllers/           # Request handlers (auth, vendor, PO, invoice, dashboard)
+│   │   ├── controllers/           # Request handlers (auth, user, vendor, PO, invoice, dashboard)
 │   │   ├── models/                # Mongoose schemas (User, Vendor, PurchaseOrder, Invoice)
 │   │   ├── routes/                # Route definitions, mounted in server.js
 │   │   ├── middleware/             # JWT auth guard + RBAC, validation, multer upload, error handler
-│   │   ├── validators/             # express-validator rule chains (auth, vendor, PO, invoice)
+│   │   ├── validators/             # express-validator rule chains (auth, user, vendor, PO, invoice)
 │   │   ├── services/
 │   │   │   ├── ocrService.js          # Tesseract.js / pdf-parse dispatch
 │   │   │   ├── extractionService.js   # Regex field extraction
@@ -85,7 +85,8 @@ invoice-automation/
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/                  # Landing, Login, Register, Forgot/ResetPassword, Dashboard,
-│   │   │                           #  Vendors(+Detail), PurchaseOrders(+Detail/New), Invoices(+Detail), UploadInvoice
+│   │   │                           #  Vendors(+Detail), PurchaseOrders(+Detail/New), Invoices(+Detail),
+│   │   │                           #  UploadInvoice, Users (admin-only Team & Roles page)
 │   │   ├── components/             # Layout (sidebar/nav), Modal, ConfirmDialog
 │   │   ├── context/AuthContext.jsx # Auth state, localStorage-backed
 │   │   ├── services/api.js         # Axios instance + per-resource API wrappers
@@ -135,6 +136,7 @@ Full prerequisites, environment variable reference, and troubleshooting: [`docs/
 | Purchase Orders | `GET/POST /api/purchase-orders`, `GET/PUT /api/purchase-orders/:id`, `GET /api/purchase-orders/export` |
 | Invoices | `GET/POST /api/invoices`, `GET/DELETE /api/invoices/:id`, `POST /api/invoices/:id/ocr`, `PATCH /api/invoices/:id/fields`, `POST /api/invoices/:id/match`, `POST /api/invoices/:id/reject`, `GET /api/invoices/export` |
 | Dashboard | `GET /api/dashboard/stats` |
+| Users (admin-only) | `GET /api/users`, `PATCH /api/users/:id/role` |
 
 Writes are role-gated (`accountant`/`admin`); deletes are `admin`-only; everything else just needs to be logged in. See [`docs/ARCHITECTURE.md §7`](docs/ARCHITECTURE.md#7-auth--roles).
 

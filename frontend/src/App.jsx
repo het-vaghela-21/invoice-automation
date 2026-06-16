@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { canWrite } from './utils/permissions';
+import { canWrite, isAdmin } from './utils/permissions';
 import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -17,6 +17,7 @@ import NewPurchaseOrder from './pages/NewPurchaseOrder';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
 import UploadInvoice from './pages/UploadInvoice';
+import Users from './pages/Users';
 
 function PrivateRoute({ children }) {
   const { user } = useAuth();
@@ -31,6 +32,15 @@ function WriteRoute({ children, fallback }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (!canWrite(user)) return <Navigate to={fallback} replace />;
+  return <Layout>{children}</Layout>;
+}
+
+// Admin-only — used for the Team & Roles page. Non-admins are bounced to
+// the dashboard rather than shown a 403 page.
+function AdminRoute({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin(user)) return <Navigate to="/" replace />;
   return <Layout>{children}</Layout>;
 }
 
@@ -56,6 +66,7 @@ function AppRoutes() {
       <Route path="/invoices" element={<PrivateRoute><Invoices /></PrivateRoute>} />
       <Route path="/invoices/:id" element={<PrivateRoute><InvoiceDetail /></PrivateRoute>} />
       <Route path="/upload" element={<WriteRoute fallback="/invoices"><UploadInvoice /></WriteRoute>} />
+      <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
