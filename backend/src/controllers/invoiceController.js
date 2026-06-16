@@ -237,25 +237,50 @@ exports.submitMatching = async (req, res, next) => {
       validationResult = validateAgainstPO(verifiedData, po, vendor);
       validationResult.duplicateCheck = duplicateCheck;
     } else {
-      // No PO linked — try fuzzy vendor match only
-      let vendorMatchStatus = 'passed';
-      const discrepancies = [];
+      // No Purchase Order could be linked — by upload time, OCR auto-detection,
+      // AND the second-chance lookup above. There is nothing to verify this
+      // invoice's vendor, amounts, or line items against, so it can NEVER
+      // reach "passed" here — fail closed, not open. (The previous version of
+      // this fallback defaulted `vendorMatchStatus` to "passed" and only
+      // demoted it if a vendor name was extracted AND failed to match — a
+      // completely blank/garbage extraction, e.g. a random PDF with no
+      // recognizable vendor name at all, skipped that check entirely and
+      // silently passed with an 80% score. That's exactly backwards: missing
+      // evidence is not the same as a clean match, and a control that can't
+      // tell the difference can be walked straight through by a fabricated
+      // document. This path now always returns review_required, with
+      // discrepancies that say plainly what's missing so a human has the
+      // context to decide — never an automatic pass.)
+      const discrepancies = [
+        { field: 'purchaseOrder', expected: 'A matching purchase order', actual: 'None found or linked', severity: 'high' }
+      ];
 
+      let knownVendor = false;
       if (verifiedData.vendorName) {
         const allVendors = await Vendor.find({ status: 'active' }).select('name');
         const match = allVendors.find((v) =>
           v.name.toLowerCase().includes(verifiedData.vendorName.toLowerCase()) ||
           verifiedData.vendorName.toLowerCase().includes(v.name.toLowerCase())
         );
+        knownVendor = !!match;
         if (!match) {
-          vendorMatchStatus = 'review_required';
           discrepancies.push({ field: 'vendorName', expected: 'Known vendor', actual: verifiedData.vendorName, severity: 'medium' });
         }
+      } else {
+        discrepancies.push({ field: 'vendorName', expected: 'A vendor name', actual: null, severity: 'high' });
+      }
+
+      if (verifiedData.totalAmount == null) {
+        discrepancies.push({ field: 'totalAmount', expected: 'An extracted amount', actual: null, severity: 'high' });
       }
 
       validationResult = {
-        status: vendorMatchStatus,
-        matchScore: vendorMatchStatus === 'passed' ? 80 : 40,
+        status: 'review_required',
+        // Still meaningful as a confidence signal even though it can never
+        // produce "passed" here — higher when there's at least a recognized
+        // vendor and an amount to show a reviewer, lower when there's
+        // essentially nothing usable in the document at all.
+        matchScore: knownVendor && verifiedData.totalAmount != null ? 35 : 10,
         discrepancies,
         duplicateCheck
       };

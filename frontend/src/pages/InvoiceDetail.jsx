@@ -28,6 +28,7 @@ const ALL_FIELD_KEYS = Object.keys(FIELD_META);
 // but still need a friendly label when shown in a discrepancy list/table.
 const DISCREPANCY_LABELS = {
   poStatus: 'PO Status',
+  purchaseOrder: 'Purchase Order Match',
   duplicateInvoice: 'Duplicate Check',
   lineItemCount: 'Line Item Count',
 };
