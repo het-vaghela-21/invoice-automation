@@ -137,13 +137,36 @@ A pure-function, regex-based field extractor — no ML model is wired in yet (se
 | Check | Points | Pass condition |
 |---|---|---|
 | Vendor name | 20 | normalized substring/equality match against PO's vendor |
-| PO number | 25 | normalized exact match |
-| Total amount | 30 | within 5% tolerance of PO total |
+| PO number | 20 | normalized exact match |
+| Total amount | 25 | within 5% tolerance of PO total |
 | Currency | 10 | exact match (or absent, given benefit of the doubt) |
 | Subtotal | 10 | within 5% tolerance |
-| Line item count | 5 | exact count match |
+| Line item content | 15 | description + price match per item (see §6b) |
 
-`matchScore = min(100, sum of points earned)`. A missing field earns partial credit (so an invoice that simply didn't extract a subtotal isn't punished as hard as one with a *wrong* subtotal). Any **high-severity** discrepancy (vendor mismatch, PO mismatch, total off by >10%, missing total) or a score under 60 forces `review_required` instead of `passed`.
+`matchScore = min(100, sum of points earned)`. A missing field earns partial credit (so an invoice that simply didn't extract a subtotal isn't punished as hard as one with a *wrong* subtotal). Any **high-severity** discrepancy (vendor mismatch, PO mismatch, total off by >10%, missing total, unauthorized line item) or a score under 60 forces `review_required` instead of `passed`.
+
+### 6b. Line item content matching
+
+The line item check has been upgraded from a simple count comparison to full content matching. For each invoice line item, the algorithm finds the best-matching PO line item using a combined similarity score:
+
+```
+itemSimilarity = 0.6 × Jaccard(description words) + 0.4 × amountSim(unitPrice)
+```
+
+Pairs are assigned greedily from highest to lowest similarity (minimum threshold: 0.30 combined, 0.25 description). The result drives both the score contribution and the discrepancies:
+
+| Scenario | Severity |
+|---|---|
+| Invoice item with no match in PO | **HIGH** (unauthorized charge) |
+| Invoice qty > PO qty on matched item | **HIGH** (over-billing) |
+| Invoice unit price > PO price + 5% | **HIGH** (price manipulation) |
+| PO item missing from invoice | **MEDIUM** (partial delivery) |
+| Invoice qty < PO qty | **MEDIUM** (under-delivery) |
+| Invoice unit price below PO (discount) | **LOW** |
+
+The structured result (`lineItemMatches`, `unmatchedInvoiceItems`) is stored on `validationResult` so the frontend can render a colour-coded side-by-side comparison table, not just a flat discrepancy string. Full algorithm design: [`docs/PLAN_LINE_ITEM_MATCHING.md`](./PLAN_LINE_ITEM_MATCHING.md).
+
+When the planned ML service is running, the Jaccard description similarity function can be swapped for cosine similarity of sentence embeddings from `POST /match` — the rest of the matching algorithm is unchanged.
 
 If the invoice has no linked PO, matching falls back to a much looser check: does the extracted vendor name fuzzy-match any active vendor in the system at all? Score is binary (80 if yes, 40 if no).
 
@@ -200,7 +223,38 @@ Response: { fields: ExtractedData }   // same shape extractInvoiceData() returns
 
 As long as the replacement returns the same `{ value, confidence }`-shaped field map, `invoiceController.triggerOCR` doesn't need to change.
 
-## 9. Frontend architecture
+## 9. PDF annotation overlay (`frontend/src/components/PDFAnnotationViewer.jsx`)
+
+The `InvoiceDetail` split view (shown for `ocr_extracted`, `pending_review`, and `review_required` statuses) renders the source PDF on the left with extracted field values highlighted directly on it, so a reviewer can cross-reference what the system extracted against exactly where it appears in the document.
+
+**How it works:**
+
+- `react-pdf` (pdf.js wrapper) renders the PDF page-by-page to a `<canvas>` element and overlays a transparent text layer above it. The text layer positions individual text items at their exact on-page coordinates — this is what makes text selection and search possible in any PDF viewer.
+- `customTextRenderer` intercepts each text item before it's placed in the layer and returns HTML. Matched values are wrapped in `<mark>` elements with a semi-transparent (`rgba(..., 0.30)`) background so the canvas text underneath remains legible while the highlight is visible.
+- The matching is a multi-variant substring search: for each field (vendorName, invoiceNumber, totalAmount, invoiceDate, poNumber, gstNumber, bankAccount), the extracted value and its numeric variants (comma-formatted, fixed-decimal) are compiled into regex patterns that run against each text item string. Multiple fields can match the same text item — the first match wins to avoid overlapping marks.
+- Overlapping matches within a single text item are handled by a sorted, cursor-advancing merge: scan left to right, skip any match that starts before the current write cursor, emit plain escaped HTML between matches and marked HTML for each match.
+
+**Colour palette** — each field gets a distinct hue, shown in a chip legend above the PDF:
+
+| Field | Chip bg (legend) | Mark bg (in-PDF) |
+|---|---|---|
+| Vendor | amber `#fef9c3` | `rgba(202,138,4, 0.30)` |
+| Invoice # | blue `#dbeafe` | `rgba(59,130,246, 0.30)` |
+| Total | green `#dcfce7` | `rgba(22,163,74, 0.30)` |
+| Date | purple `#f3e8ff` | `rgba(147,51,234, 0.30)` |
+| PO # | orange `#ffedd5` | `rgba(234,88,12, 0.30)` |
+| GST/Tax | teal `#ccfbf1` | `rgba(13,148,136, 0.30)` |
+| Bank Acct | pink `#fce7f3` | `rgba(219,39,119, 0.30)` |
+
+Legend chips are only rendered for fields where the extracted value is non-null. Clicking a chip isolates that field's highlight (all others dim to 25% opacity); clicking again restores all highlights. A "Show all" button resets from isolated mode.
+
+**Width tracking:** a `ResizeObserver` on the scroll container feeds the `<Page width={containerWidth}>` prop so pages fill the available space exactly — no fixed pixel width, responsive to the split-view's flex layout.
+
+**Graceful fallback:** for image invoices (JPEG/PNG) or when `extractedData` has no non-null values, the component renders a plain `<img>` or an empty placeholder respectively.
+
+**pdf.js worker:** configured via `new URL('pdfjs-dist/build/pdf.worker.min.js', import.meta.url)` (Vite-compatible local worker, no CDN dependency).
+
+## 10. Frontend architecture
 
 - **Routing** (`frontend/src/App.jsx`): a flat `react-router-dom` v6 tree. `PrivateRoute` wraps every authenticated page in `Layout` and redirects to `/login` if `useAuth().user` is null. The `/` route is special-cased (`HomeRoute`): logged-out visitors see the public `Landing` page, logged-in users see `Dashboard` — both at the same URL.
 - **Auth state** (`frontend/src/context/AuthContext.jsx`): a single React context backed by `localStorage`, no Redux/Zustand. `login`/`register` call the API, persist the token+user, and set state; route guards react to that state automatically.
@@ -210,33 +264,38 @@ As long as the replacement returns the same `{ value, confidence }`-shaped field
 - **InvoiceDetail** is the most stateful page: it renders a different layout per invoice status (centered "start OCR" card for `uploaded`, a split file-preview/editable-fields view for `ocr_extracted | pending_review | review_required`, and read-only result views for `passed | rejected`), and tracks unsaved field edits locally (`editedFields`, `changedKeys`) before they're pushed to the backend. Every action surfaces a toast (`react-hot-toast`, configured in `main.jsx`) in addition to the inline error banner, and destructive actions (vendor/invoice delete) go through `ConfirmDialog` rather than the browser's native `confirm()`.
 - **VendorDetail** (`GET /vendors/:id/summary`) is a read-only drill-down: a vendor's full PO + invoice history, rolled-up total PO value / total invoiced, and a flagged-invoice count — without it, a vendor was just a name on a card grid with no way to see what's actually been ordered or billed from them.
 
-## 10. Data layer
+## 11. Data layer
 
 MongoDB via Mongoose, four collections — see [DATA_MODELS.md](./DATA_MODELS.md) for full schemas. No separate caching layer; every list endpoint does plain `find()` + `countDocuments()` pagination. Indexes exist on `Invoice.uploadedFile.hash`, `Invoice.status + createdAt`, `Invoice.vendor`, and a text index on `Vendor.name + email`.
 
 CSV export (`GET /invoices/export`, `GET /purchase-orders/export`) reuses the same query filters as the paginated list endpoints but returns every matching row, built with a small in-house CSV helper (`backend/src/utils/csv.js`) rather than a dependency — the escaping rules for a CSV cell are a handful of lines, not worth a package for this scale of export.
 
-## 11. Input validation
+## 12. Input validation
 
 `express-validator` rule chains (`backend/src/validators/*.js`) run per-route, ahead of the controller, via a shared `handleValidation` middleware (`backend/src/middleware/validate.js`) that collects every failing field into one `400` response: `{ success: false, message, errors: [{ field, message }] }`. This replaces what used to be raw Mongoose `ValidationError`/`CastError` text reaching the client. Validated: registration/login/password-reset payloads, vendor create/update, PO create/update (line item quantities/prices, tax rate range), and the invoice field-update body shape. Multipart upload validation (`purchaseOrderId` on invoice upload) runs *after* `multer`, since `req.body` for a multipart request isn't populated until multer has parsed it.
 
-## 12. Tests
+## 13. Tests
 
 `backend/src/services/__tests__/` — Jest, pure-function unit tests, no DB or HTTP server needed (`cd backend && npm test`). Covers `extractionService.js` (regression tests for every real extraction bug found during development, including one the test suite itself caught while being written — see §5's note on the `\b` boundary fix) and `validationService.js` (the PO match-scoring formula's point allocations and severity thresholds). Intentionally does not cover `checkDuplicate` (DB-dependent) or the controllers (would need an HTTP/DB integration harness) — out of scope for the time available; see [SETUP.md §6](./SETUP.md#6-run-tests).
 
-## 13. Designed extension point: pluggable ML extraction
+## 14. Planned AI/ML layer
 
-`extractionService.js` is intentionally a drop-in-replaceable module. The regex extractor can be swapped for a real model (e.g. LayoutLMv3, which understands document layout, not just text) without touching the controller:
+A Python FastAPI microservice (`ml-service/`, planned) replaces or augments the regex extraction layer and adds two new capabilities (anomaly detection, semantic matching) that cannot be expressed as heuristic rules. The Node.js backend calls it via HTTP; the four endpoints are:
 
-```
-POST /api/ml/extract
-Body:     { text: string, fileBase64?: string }
-Response: { fields: ExtractedData }   // same shape extractInvoiceData() returns today
-```
+| Endpoint | Model | Replaces / extends |
+|---|---|---|
+| `POST /extract` | spaCy NER fine-tuned in Colab | Replaces `extractionService.extractInvoiceData()` |
+| `POST /anomaly` | Isolation Forest (scikit-learn) | New — adds `anomalyScore` / `riskLevel` to Invoice |
+| `POST /match` | Sentence-transformers, fine-tuned | Extends `validationService.vendorNamesMatch()` and `matchLineItems()` description similarity |
+| `POST /confidence` | Logistic classifier | Replaces hardcoded confidence values in `extractionService` |
 
-As long as the replacement returns the same `{ value, confidence }`-shaped field map, `invoiceController.triggerOCR` doesn't need to change.
+**Plug-in seam for extraction:** `invoiceController.triggerOCR` calls a single `extractInvoiceData(text)` function. Swapping to the NER model means replacing that one call with `axios.post('http://localhost:8000/extract', { text })` and normalising the response to the same `{ value, confidence }` shape. Nothing else in the pipeline changes. The line item matching in `validationService` is completely agnostic to how `extractedData.lineItems` was populated.
 
-## 14. Known limitations (by design, not oversight)
+**Plug-in seam for description matching:** `matchLineItems` in `validationService` calls a `descriptionSimilarity(a, b)` helper. When the ML service is available, that helper calls `POST /match` instead of computing Jaccard locally. A `USE_ML_SIMILARITY` config flag gates the switch so the system degrades gracefully if the ML service is down.
+
+Full design specification: [`ML_BRIEFING_FOR_CLAUDE_WEB.md`](../ML_BRIEFING_FOR_CLAUDE_WEB.md).
+
+## 15. Known limitations (by design, not oversight)
 
 - OCR runs synchronously in the request — fine for the current single-instance, low-volume use case, but it would need to move to a background job/queue (e.g. BullMQ) before handling concurrent large-volume uploads.
 - No scanned-PDF → image fallback (see §4).

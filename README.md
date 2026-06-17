@@ -2,7 +2,7 @@
 
 A full-stack invoice processing system that takes a vendor invoice (PDF/JPG/PNG), runs OCR + field extraction, lets a human verify/correct the extracted fields, then validates it against a linked Purchase Order with a transparent, point-scored match — producing a pass/review/reject verdict with a full audit trail of every change.
 
-Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-process OCR pipeline (no external OCR API or paid service required) and a regex-based extraction layer designed to be swapped for a real document-understanding model (LayoutLMv3 or similar) later without touching the rest of the system.
+Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-process OCR pipeline (no external OCR API or paid service required), a regex-based extraction layer designed to be swapped for a real NER model later without touching the rest of the system, and an interactive PDF annotation viewer that highlights extracted fields directly on the source document.
 
 > 📐 Want the deep dive? See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the request lifecycle, state machine, and the actual design decisions (and bugs) behind the extraction regexes and matching algorithm. See [`docs/API.md`](docs/API.md) for the full endpoint reference, [`docs/DATA_MODELS.md`](docs/DATA_MODELS.md) for schemas, and [`docs/SETUP.md`](docs/SETUP.md) for a complete local setup + troubleshooting guide.
 
@@ -15,7 +15,7 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 3. **Extract fields** — invoice number, vendor name, GST/tax ID, PO number, dates, amounts, currency, bank account, and line items, each with a confidence score, via a heuristic regex extraction layer.
 4. **Auto-match the PO** — the PO number OCR just read is looked up against every purchase order in the system and linked automatically; a manual override is only needed if extraction fails or misreads it.
 5. **Review & correct** — a human checks the extracted fields side-by-side against the original document and fixes anything OCR got wrong. Every correction is logged (old value → new value → who → when).
-6. **Match against the PO** — a deterministic point-scored comparison (vendor name, PO number, total, currency, subtotal, line item count, and the PO's own approval status) plus SHA-256-based duplicate detection produces a match score and a `passed` / `review_required` verdict, with itemized discrepancies. A passing invoice immediately closes its PO so it can never be matched twice.
+6. **Match against the PO** — a deterministic point-scored comparison (vendor name, PO number, total, currency, subtotal, line item content, and the PO's own approval status) plus SHA-256-based duplicate detection produces a match score and a `passed` / `review_required` verdict, with itemized discrepancies. A passing invoice immediately closes its PO so it can never be matched twice.
 7. **Audit** — every action (upload, OCR run, auto-match, field edit, match run, rejection) is appended to a per-invoice processing log.
 
 ## Feature list
@@ -37,13 +37,14 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 - 🛡️ **Server-side input validation** with field-level error messages (`express-validator`)
 - 📊 **Dashboard** — status breakdown, recent activity, charts
 - 📱 **Responsive UI** — works down to mobile, with a dedicated marketing landing page for logged-out visitors, toast notifications, and confirm dialogs instead of native browser popups
+- 📎 **PDF annotation overlay** — extracted fields are highlighted directly on the rendered PDF using colour-coded marks (amber for vendor, blue for invoice number, green for total, etc.). A clickable legend lets reviewers isolate individual field highlights. Powered by react-pdf (pdf.js) with a custom text renderer.
 - 🧪 **Unit tests** for the extraction and PO-matching logic (`cd backend && npm test`)
 
 ## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Vite, React Router v6, Tailwind CSS, Recharts, react-dropzone, GSAP |
+| Frontend | React 18, Vite, React Router v6, Tailwind CSS, Recharts, react-dropzone, GSAP, react-pdf |
 | Backend | Node.js, Express, Mongoose |
 | Database | MongoDB |
 | OCR | Tesseract.js (images, WASM), pdf-parse (PDFs with text layer) |
@@ -57,8 +58,12 @@ React (Vite, :5173) ──/api──▶ Express (:5000) ──▶ MongoDB
                                   │
                     ┌─────────────┼─────────────┐
               OCR layer    Extraction layer   Validation layer
-          Tesseract.js /   regex field         PO match scoring
-            pdf-parse       parsers            + duplicate check
+          Tesseract.js /   NER model (ML)      PO match scoring
+            pdf-parse     + regex fallback    + line item match
+                                              + duplicate check
+                               │
+                     Python FastAPI (:8000)   ← planned ML service
+                     NER · Anomaly · Embeddings
 ```
 
 Full breakdown — including the invoice state machine, the exact regex extraction strategy (and the real bugs that shaped it), and the point-scoring formula for PO matching — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -90,7 +95,7 @@ invoice-automation/
 │   │   ├── pages/                  # Landing, Login, Register, Forgot/ResetPassword, Dashboard,
 │   │   │                           #  Vendors(+Detail), PurchaseOrders(+Detail/New), Invoices(+Detail),
 │   │   │                           #  UploadInvoice, Users (admin-only Team & Roles page)
-│   │   ├── components/             # Layout (sidebar/nav), Modal, ConfirmDialog
+│   │   ├── components/             # Layout (sidebar/nav), Modal, ConfirmDialog, PDFAnnotationViewer
 │   │   ├── context/AuthContext.jsx # Auth state, localStorage-backed
 │   │   ├── services/api.js         # Axios instance + per-resource API wrappers
 │   │   └── utils/                  # helpers, permissions (RBAC UI rules), motion (page transitions)
@@ -155,13 +160,26 @@ uploaded → ocr_extracted → pending_review → review_required ⇄ (re-match)
 
 Each transition is a distinct user-triggered action (upload → start OCR → save corrected fields → submit for matching), not an automatic pipeline — the user stays in control at every step, and can re-run OCR or re-submit for matching after fixing a discrepancy. Details: [`docs/ARCHITECTURE.md §3`](docs/ARCHITECTURE.md#3-invoice-state-machine).
 
+## Planned AI/ML layer
+
+A Python FastAPI microservice (`ml-service/`, planned) will sit alongside the Node.js backend and serve four ML capabilities, callable via HTTP:
+
+| Endpoint | Model | Purpose |
+|---|---|---|
+| `POST /extract` | spaCy NER (fine-tuned in Colab) | Replaces regex extraction with a trained entity recogniser for VENDOR, INV_NUM, AMOUNT, DATE, PO_NUM, GST_NUM, LINE_ITEM |
+| `POST /anomaly` | Isolation Forest (scikit-learn) | Scores each invoice for statistical unusualness — flags price spikes, vendor frequency anomalies, suspicious timing |
+| `POST /match` | Sentence-transformers (fine-tuned) | Replaces Levenshtein vendor matching with embedding cosine similarity, handles abbreviations and reorderings |
+| `POST /confidence` | Logistic classifier | Replaces hardcoded confidence values with a learned predictor of extraction accuracy |
+
+The extraction layer is deliberately decoupled: `invoiceController.triggerOCR` calls a single `extractInvoiceData()` function. Swapping from regex to NER means replacing that one call — nothing else in the pipeline changes. See `docs/PLAN_LINE_ITEM_MATCHING.md` and `ML_BRIEFING_FOR_CLAUDE_WEB.md` for full design specs.
+
 ## Known limitations
 
 - OCR runs synchronously within the request — fine at current scale, would need a job queue for high-volume concurrent processing.
 - No scanned-PDF (image-only) → OCR fallback yet; only PDFs with an embedded text layer extract text via `pdf-parse`.
-- Field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. This is the intentional seam for plugging in a real model (see "Designed extension point" in `docs/ARCHITECTURE.md`).
-- Auto-detecting the PO depends on OCR reading the PO number correctly off the document; if it can't (unusual layout, low-quality scan), the invoice falls back to the looser fuzzy-vendor-only match and a human can link the right PO manually during review.
-- No real email delivery for password resets — the reset link is returned directly by the API outside production, since no SMTP service is configured for this demo.
+- Field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. Intentional seam for the planned NER model.
+- Auto-detecting the PO depends on OCR reading the PO number correctly off the document; if it can't, the invoice falls back to fuzzy-vendor-only match and a human can link the right PO during review.
+- No real email delivery for password resets — the reset link is returned directly by the API outside production.
 - Uploaded files live on local disk, not object storage.
 - Test coverage is limited to the pure extraction/matching logic — no integration tests against a live DB/HTTP layer yet.
 
