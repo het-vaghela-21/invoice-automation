@@ -6,6 +6,7 @@ import { getStatusBadge, getScoreColor } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
 import { useAuth } from '../context/AuthContext';
 import { canWrite } from '../utils/permissions';
+import PDFAnnotationViewer from '../components/PDFAnnotationViewer';
 
 const FIELD_META = {
   vendorName:    { label: 'Vendor Name',    type: 'text' },
@@ -459,7 +460,7 @@ export default function InvoiceDetail() {
       {/* ── SPLIT VIEW (ocr_extracted, pending_review, review_required) ── */}
       {showSplitView && (
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
-          {/* Left: file preview */}
+          {/* Left: file preview with annotation overlay */}
           <div className="lg:w-1/2 rounded-xl border border-ivory-300 overflow-hidden bg-ivory-100 flex-shrink-0 flex flex-col" style={{ minHeight: '400px' }}>
             <div className="bg-white border-b border-ivory-200 px-3 py-2 text-xs text-ivory-500 font-medium flex items-center gap-2 flex-shrink-0">
               <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-ivory-400">
@@ -467,8 +468,8 @@ export default function InvoiceDetail() {
               </svg>
               {invoice.uploadedFile?.originalName}
             </div>
-            <div className="flex-1" style={{ minHeight: 0 }}>
-              <FilePreview invoice={invoice} />
+            <div className="flex-1 flex flex-col min-h-0">
+              <PDFAnnotationViewer invoice={invoice} />
             </div>
           </div>
 
