@@ -1,5 +1,7 @@
 # Briefing for Claude Web — AI/ML Intern Project Guide
 
+> **Status: IMPLEMENTED.** The four ML features described here have since been built (`ml-service/`) and integrated into the Node backend as an optional, fallback-safe layer. This file is kept as the original design brief / background. For how it actually works now, see [`docs/ARCHITECTURE.md §14`](docs/ARCHITECTURE.md#14-aiml-layer-integrated-optional-at-runtime), [`RUNNING.md`](RUNNING.md), and the AI/ML section of the [`README`](README.md). Note one detail this brief gets wrong about the *original* code: vendor matching was substring-based, not Levenshtein — the ML `/match` endpoint now supplements that substring match rather than replacing a Levenshtein one.
+
 Paste this entire document as your first message into Claude web. Everything Claude needs to know is below.
 
 ---

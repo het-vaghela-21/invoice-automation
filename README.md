@@ -2,7 +2,7 @@
 
 A full-stack invoice processing system that takes a vendor invoice (PDF/JPG/PNG), runs OCR + field extraction, lets a human verify/correct the extracted fields, then validates it against a linked Purchase Order with a transparent, point-scored match — producing a pass/review/reject verdict with a full audit trail of every change.
 
-Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-process OCR pipeline (no external OCR API or paid service required), a regex-based extraction layer designed to be swapped for a real NER model later without touching the rest of the system, and an interactive PDF annotation viewer that highlights extracted fields directly on the source document.
+Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-process OCR pipeline (no external OCR API or paid service required), an interactive PDF annotation viewer that highlights extracted fields directly on the source document, and an **optional Python FastAPI ML microservice** (`ml-service/`) that augments extraction, vendor matching, and adds anomaly detection — wired in so the Node backend automatically falls back to its built-in regex/heuristic logic whenever the ML service isn't running, so the system works with or without it.
 
 > 📐 Want the deep dive? See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the request lifecycle, state machine, and the actual design decisions (and bugs) behind the extraction regexes and matching algorithm. See [`docs/API.md`](docs/API.md) for the full endpoint reference, [`docs/DATA_MODELS.md`](docs/DATA_MODELS.md) for schemas, and [`docs/SETUP.md`](docs/SETUP.md) for a complete local setup + troubleshooting guide.
 
@@ -27,7 +27,9 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 - 📄 **Purchase orders** with line items, auto-generated PO numbers (`PO-2026-00001`), server-computed subtotal/tax/total
 - 📤 **Drag-and-drop invoice upload** (PDF/JPG/PNG, 10 MB limit) — no manual PO selection needed, built for bulk
 - 🔍 **In-process OCR** — no external API keys, no paid OCR service
-- 🧠 **Heuristic field extraction** with per-field confidence scores
+- 🧠 **Field extraction** with per-field confidence scores — regex/heuristic baseline, transparently upgraded per-field by a trained spaCy NER model + learned confidence scorer when the ML service is running
+- 🤖 **Optional ML microservice** (`ml-service/`, Python FastAPI) — spaCy NER extraction, sentence-transformer semantic vendor matching, Isolation Forest anomaly scoring, and a learned confidence model. Every call is best-effort with automatic fallback to the built-in regex/substring logic, so the app runs fine with the ML service off
+- 🚨 **Anomaly / fraud signal** — each matched invoice gets a `riskLevel` (low/medium/high) scored against the vendor's own spend history (informational; doesn't override the match verdict)
 - 🔗 **Automatic PO matching** — the PO number on the invoice is read by OCR and linked to the matching purchase order automatically; manual selection is only an optional override for edge cases
 - ✏️ **Inline field correction** with a complete change-history audit trail
 - ✅ **PO matching engine** — transparent point-based scoring, configurable tolerance (5% on amounts), severity-tagged discrepancies
@@ -48,6 +50,7 @@ Built as a MERN-stack application (MongoDB, Express, React, Node) with an in-pro
 | Backend | Node.js, Express, Mongoose |
 | Database | MongoDB |
 | OCR | Tesseract.js (images, WASM), pdf-parse (PDFs with text layer) |
+| ML service (optional) | Python, FastAPI, Uvicorn, spaCy (NER), sentence-transformers, scikit-learn (Isolation Forest, MLP), called from Node via axios |
 | Auth | JWT (`jsonwebtoken`) + bcrypt password hashing |
 | File upload | Multer |
 
@@ -58,12 +61,14 @@ React (Vite, :5173) ──/api──▶ Express (:5000) ──▶ MongoDB
                                   │
                     ┌─────────────┼─────────────┐
               OCR layer    Extraction layer   Validation layer
-          Tesseract.js /   NER model (ML)      PO match scoring
-            pdf-parse     + regex fallback    + line item match
-                                              + duplicate check
-                               │
-                     Python FastAPI (:8000)   ← planned ML service
-                     NER · Anomaly · Embeddings
+          Tesseract.js /   regex baseline      PO match scoring
+            pdf-parse      + ML overlay        + line item match
+                               │                + ML vendor match
+                               │                + anomaly scoring
+                               ▼                + duplicate check
+                     Python FastAPI (:8000)   ← optional ML service
+                     NER · Confidence · Anomaly · Embeddings
+                     (backend falls back to regex/substring if down)
 ```
 
 Full breakdown — including the invoice state machine, the exact regex extraction strategy (and the real bugs that shaped it), and the point-scoring formula for PO matching — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -82,9 +87,9 @@ invoice-automation/
 │   │   ├── validators/             # express-validator rule chains (auth, user, vendor, PO, invoice)
 │   │   ├── services/
 │   │   │   ├── ocrService.js          # Tesseract.js / pdf-parse dispatch
-│   │   │   ├── extractionService.js   # Regex field extraction
+│   │   │   ├── extractionService.js   # Regex extraction + ML overlay (async)
 │   │   │   ├── __tests__/             # Jest unit tests (extraction + matching)
-│   │   │   └── validationService.js   # PO match scoring + duplicate detection
+│   │   │   └── validationService.js   # PO match scoring (+ optional ML vendor-match hint) + duplicate detection
 │   │   └── utils/
 │   │       ├── csv.js                 # Minimal CSV builder (export endpoints)
 │   │       ├── seed.js                # Minimal seed
@@ -100,6 +105,13 @@ invoice-automation/
 │   │   ├── services/api.js         # Axios instance + per-resource API wrappers
 │   │   └── utils/                  # helpers, permissions (RBAC UI rules), motion (page transitions)
 │   └── vite.config.js              # Dev proxy: /api, /uploads → localhost:5000
+├── ml-service/                     # Optional Python FastAPI ML microservice (:8000)
+│   ├── main.py                     # /health /extract /anomaly /match /confidence
+│   ├── mlClient.js                 # Node client the backend imports (axios, 8s timeout, graceful fallback)
+│   ├── requirements.txt
+│   ├── .gitignore                  # keeps trained model binaries (models/) out of git
+│   └── models/                     # trained models — NOT committed; placed here locally
+├── RUNNING.md                      # 3-process startup order + ML fallback behaviour
 └── docs/
     ├── ARCHITECTURE.md             # System design, state machine, extraction/matching internals
     ├── API.md                      # Full endpoint reference
@@ -124,6 +136,16 @@ node src/utils/seed-test.js
 npm run dev                 # backend → http://localhost:5000
 cd ../frontend && npm run dev   # frontend → http://localhost:5173
 ```
+
+**Optional — ML microservice** (for trained extraction, semantic vendor matching, and anomaly scoring). Start it *before* the backend; if it's not running, the backend silently falls back to regex/substring logic:
+
+```bash
+cd ml-service           # requires the trained models under ml-service/models/
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000   # → http://localhost:8000/health
+```
+
+Full startup order and the exact fallback behaviour: [`RUNNING.md`](RUNNING.md).
 
 **Demo logins** (one per role):
 
@@ -160,24 +182,32 @@ uploaded → ocr_extracted → pending_review → review_required ⇄ (re-match)
 
 Each transition is a distinct user-triggered action (upload → start OCR → save corrected fields → submit for matching), not an automatic pipeline — the user stays in control at every step, and can re-run OCR or re-submit for matching after fixing a discrepancy. Details: [`docs/ARCHITECTURE.md §3`](docs/ARCHITECTURE.md#3-invoice-state-machine).
 
-## Planned AI/ML layer
+## AI/ML layer (integrated, optional at runtime)
 
-A Python FastAPI microservice (`ml-service/`, planned) will sit alongside the Node.js backend and serve four ML capabilities, callable via HTTP:
+A Python FastAPI microservice (`ml-service/`) sits alongside the Node.js backend and serves four ML capabilities over HTTP. It's **integrated and wired into the pipeline**, but **optional at runtime** — every call from Node is wrapped in try/catch with an 8s timeout, and on any failure the backend transparently falls back to its built-in regex/substring logic.
 
-| Endpoint | Model | Purpose |
+| Endpoint | Model | How it's used in the Node pipeline |
 |---|---|---|
-| `POST /extract` | spaCy NER (fine-tuned in Colab) | Replaces regex extraction with a trained entity recogniser for VENDOR, INV_NUM, AMOUNT, DATE, PO_NUM, GST_NUM, LINE_ITEM |
-| `POST /anomaly` | Isolation Forest (scikit-learn) | Scores each invoice for statistical unusualness — flags price spikes, vendor frequency anomalies, suspicious timing |
-| `POST /match` | Sentence-transformers (fine-tuned) | Replaces Levenshtein vendor matching with embedding cosine similarity, handles abbreviations and reorderings |
-| `POST /confidence` | Logistic classifier | Replaces hardcoded confidence values with a learned predictor of extraction accuracy |
+| `POST /extract` | spaCy NER | In `extractionService.extractInvoiceData` — regex runs first, then ML-extracted fields are **overlaid per-field** (ML wins where it returns a value; regex stays the fallback for everything else) |
+| `POST /confidence` | MLP classifier (scikit-learn) | Supplies the learned confidence score for each ML-extracted field, replacing the hardcoded regex confidences for those fields |
+| `POST /match` | Sentence-transformers | In `invoiceController.submitMatching` — a semantic vendor-name match that can **rescue** a real match `validateAgainstPO`'s substring comparison missed (it never breaks an existing match) |
+| `POST /anomaly` | Isolation Forest (scikit-learn) | In `submitMatching` — scores the invoice against the vendor's own spend history and writes `anomalyScore` + `riskLevel` to the Invoice (informational; doesn't change the verdict) |
 
-The extraction layer is deliberately decoupled: `invoiceController.triggerOCR` calls a single `extractInvoiceData()` function. Swapping from regex to NER means replacing that one call — nothing else in the pipeline changes. See `docs/PLAN_LINE_ITEM_MATCHING.md` and `ML_BRIEFING_FOR_CLAUDE_WEB.md` for full design specs.
+**How the wiring degrades:**
+
+| Capability | ML service up | ML service down (fallback) |
+|---|---|---|
+| Field extraction | spaCy NER + learned confidence, overlaid on regex | regex extraction only |
+| Vendor matching | semantic similarity rescues fuzzy matches | substring matching only |
+| Anomaly scoring | Isolation Forest risk level | `riskLevel: "unknown"`, no score |
+
+The integration was kept deliberately seam-friendly: `extractInvoiceData()` is the single extraction entry point, and `validateAgainstPO()` stays a pure, unit-tested function that only receives an optional ML hint — so the ML side-effects live entirely in the async controller. Trained model binaries are not committed (see `ml-service/.gitignore`); place them under `ml-service/models/`. Background design specs: `docs/PLAN_LINE_ITEM_MATCHING.md`, `ML_BRIEFING_FOR_CLAUDE_WEB.md`.
 
 ## Known limitations
 
 - OCR runs synchronously within the request — fine at current scale, would need a job queue for high-volume concurrent processing.
 - No scanned-PDF (image-only) → OCR fallback yet; only PDFs with an embedded text layer extract text via `pdf-parse`.
-- Field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. Intentional seam for the planned NER model.
+- With the ML service off, field extraction is regex/heuristic-based — accurate on clean, labeled invoices, degrades on unusual layouts. With it on, the spaCy NER model overlays the regex result; its accuracy depends on the trained models you place in `ml-service/models/` (not committed to this repo).
 - Auto-detecting the PO depends on OCR reading the PO number correctly off the document; if it can't, the invoice falls back to fuzzy-vendor-only match and a human can link the right PO during review.
 - No real email delivery for password resets — the reset link is returned directly by the API outside production.
 - Uploaded files live on local disk, not object storage.
@@ -185,6 +215,7 @@ The extraction layer is deliberately decoupled: `invoiceController.triggerOCR` c
 
 ## Contributing / extending
 
-- Swap the extraction engine: implement the same `{ value, confidence }` shape as `extractInvoiceData()` in `backend/src/services/extractionService.js` and call it from `invoiceController.triggerOCR` — nothing else needs to change.
+- Swap or tune the extraction engine: `extractInvoiceData()` in `backend/src/services/extractionService.js` is the single entry point. It already overlays the ML `/extract` result on the regex baseline (`applyMLExtraction`) — adjust the `ML_FIELD_MAP` (NER label → field) there to match your trained model's labels, or replace the ML call entirely. Anything returning the same `{ value, confidence }` shape drops in without touching the controller.
+- Point the backend at a remote ML service: set `ML_SERVICE_URL` (and optionally `ML_SERVICE_TIMEOUT_MS`) in `backend/.env`. With it unset or unreachable, the backend runs on regex/substring logic.
 - Add a new invoice field: extend `extractedData` in `Invoice.js`, add an extractor in `extractionService.js`, add it to `FIELD_META` in `frontend/src/pages/InvoiceDetail.jsx`, and (optionally) make it selectable in a vendor's `requiredFields`.
 - Enforce RBAC: the `authorize(...roles)` middleware already exists in `backend/src/middleware/auth.js` — apply it to the routes that need it.

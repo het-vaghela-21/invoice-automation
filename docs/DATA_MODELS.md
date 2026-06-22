@@ -76,6 +76,8 @@ Text index on `name` + `email` (powers `?search=`).
 | `fieldChanges` | `[{ field, oldValue, newValue, changedBy, changedAt }]` | append-only audit trail — one entry per field per save where the value actually changed |
 | `validationResult` | `{ status, matchScore, discrepancies[], duplicateCheck }` | written by `submitMatching`; `discrepancies[]` is `{ field, expected, actual, severity }` |
 | `status` | String | enum `uploaded`/`ocr_extracted`/`pending_review`/`review_required`/`passed`/`rejected` — see [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-invoice-state-machine) |
+| `anomalyScore` | Number | `0`–`1` anomaly score from the ML service's Isolation Forest, set during `submitMatching`; `null` when the ML service was unavailable. Informational only — does not change the pass/review verdict |
+| `riskLevel` | String | enum `low`/`medium`/`high`/`unknown`, derived from `anomalyScore` by the ML service; `unknown` when the ML service was unavailable |
 | `processingLog` | `[{ timestamp, action, details, status }]` | append-only event log; `status` here is `info`/`success`/`error`/`warning`, distinct from the invoice's own `status` field |
 | `createdBy` | ObjectId → User | |
 
