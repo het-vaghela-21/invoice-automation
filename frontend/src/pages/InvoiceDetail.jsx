@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { invoiceAPI } from '../services/api';
+import { invoiceAPI, pollJob } from '../services/api';
 import { getStatusBadge, getScoreColor } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
 import { useAuth } from '../context/AuthContext';
@@ -184,7 +184,15 @@ export default function InvoiceDetail() {
   const handleOCR = async () => {
     setOcrLoading(true); setError('');
     try {
-      const res = await invoiceAPI.triggerOCR(id);
+      let res = await invoiceAPI.triggerOCR(id);
+      // 202 + queued: a worker is doing the OCR. Wait for the job, then re-fetch
+      // the finished invoice. Otherwise (inline) the response already has it.
+      if (res.data.queued) {
+        toast.loading('OCR queued — processing…', { id: 'ocr-job' });
+        await pollJob(res.data.jobId);
+        toast.dismiss('ocr-job');
+        res = await invoiceAPI.getOne(id);
+      }
       setInvoice(res.data.data);
       const inv = res.data.data;
       const init = {};
@@ -196,6 +204,7 @@ export default function InvoiceDetail() {
       setChangedKeys(new Set());
       toast.success('OCR complete — review the extracted fields');
     } catch (err) {
+      toast.dismiss('ocr-job');
       const msg = err.response?.data?.message || err.response?.data?.error || 'OCR failed';
       setError(msg);
       toast.error(msg);
@@ -233,13 +242,21 @@ export default function InvoiceDetail() {
           fieldsToSave[key] = FIELD_META[key].type === 'number' ? parseFloat(v) || v : v;
       });
       if (changedKeys.size > 0) await invoiceAPI.updateFields(id, fieldsToSave);
-      const res = await invoiceAPI.submitMatching(id);
+      let res = await invoiceAPI.submitMatching(id);
+      // 202 + queued: wait for the worker to finish matching, then re-fetch.
+      if (res.data.queued) {
+        toast.loading('Matching queued — processing…', { id: 'match-job' });
+        await pollJob(res.data.jobId);
+        toast.dismiss('match-job');
+        res = await invoiceAPI.getOne(id);
+      }
       setInvoice(res.data.data);
       setChangedKeys(new Set());
       const vr = res.data.data.validationResult;
       if (vr?.status === 'passed') toast.success(`Matched — ${vr.matchScore}% score`);
       else toast.error(`Review required — ${vr?.matchScore ?? 0}% score, ${vr?.discrepancies?.length ?? 0} issue(s)`);
     } catch (err) {
+      toast.dismiss('match-job');
       const msg = err.response?.data?.message || 'Matching failed';
       setError(msg);
       toast.error(msg);

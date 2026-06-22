@@ -1,10 +1,20 @@
 # Running the system
 
-The app has **three** processes. The ML microservice is optional at runtime —
-if it isn't running, the Node backend automatically falls back to its built-in
-regex extraction and substring vendor matching, so the system still works. Start
-the ML service first if you want ML-powered extraction, semantic vendor matching,
-and anomaly scoring.
+The app has up to **four** processes, two of which are optional at runtime:
+
+| Process | Port | Required? |
+| --- | --- | --- |
+| Python ML microservice | 8000 | optional — falls back to regex/substring |
+| Node.js API backend | 5000 | required |
+| Background worker (BullMQ) | — | optional — falls back to inline processing |
+| Frontend (Vite) | 5173 | required (dev) |
+
+The ML microservice is optional: if it isn't running, the Node backend
+automatically falls back to its built-in regex extraction and substring vendor
+matching. The background worker + Redis are also optional: without them the
+backend processes OCR/matching inline on the request (the original behaviour).
+Start the ML service first if you want ML-powered extraction, semantic vendor
+matching, and anomaly scoring; add Redis + the worker when you need to scale.
 
 ## 1. Python ML microservice (port 8000)
 
@@ -34,7 +44,41 @@ The backend reads `ML_SERVICE_URL` from `backend/.env`
 log lines like `ML service unavailable, falling back to regex extraction` —
 that's expected and harmless.
 
-## 3. Frontend (port 5173)
+## 3. Background worker + Redis (optional — for scale)
+
+OCR and matching are slow (seconds to tens of seconds each). With Redis running,
+the backend pushes that work onto a BullMQ queue and returns instantly (HTTP
+`202` + a `jobId`); one or more **worker** processes drain the queue. This is
+what lets the system absorb large bursts of uploads without tying up API
+connections. Without Redis, the backend processes inline exactly as before — so
+this whole section is optional.
+
+```bash
+# Start Redis (any one of these)
+docker run -p 6379:6379 redis        # Docker
+# or: sudo systemctl start redis      # Linux package
+# or: redis-server                    # local binary
+
+# Then run one or more workers (separate terminals / machines, same Redis)
+cd backend
+npm run worker        # or: npm run worker:dev (nodemon)
+```
+
+Scale throughput by running more workers, or raise `WORKER_CONCURRENCY` per
+worker. All queue settings live in `backend/.env` (see `.env.example`):
+`QUEUE_ENABLED`, `REDIS_URL`, `WORKER_CONCURRENCY`, `QUEUE_JOB_ATTEMPTS`,
+`MONGO_POOL_SIZE`.
+
+> **Single-machine shortcut:** set `RUN_WORKER_INLINE=true` in `backend/.env`
+> and the API process will run a worker itself — you get the queue's benefits
+> (instant uploads, retries, burst absorption) without a second process. For
+> real scale, run dedicated `npm run worker` processes instead.
+
+If `QUEUE_ENABLED=false` or Redis is unreachable, you'll see
+`[queue] Redis unavailable … falling back to inline processing` on startup —
+that's expected and the app works normally, just synchronously.
+
+## 4. Frontend (port 5173)
 
 ```bash
 cd frontend
@@ -53,3 +97,15 @@ npm run dev
 Every ML call is wrapped in try/catch with an 8s timeout
 (`ML_SERVICE_TIMEOUT_MS`), so a slow or absent ML service never blocks the
 invoice pipeline.
+
+## How the queue degrades gracefully
+
+| | With Redis + worker | Without (fallback) |
+| --- | --- | --- |
+| OCR / matching | enqueued; API returns `202` + `jobId`; worker processes; frontend polls `GET /api/invoices/jobs/:jobId` | processed inline; API returns `200` with the finished invoice |
+| Burst of uploads | absorbed by the queue, drained at worker capacity | each request blocks until its own processing finishes |
+| Throughput scaling | run more workers / raise `WORKER_CONCURRENCY` | bounded by API process |
+
+The same `runOCR` / `runMatching` logic (`backend/src/services/invoiceProcessor.js`)
+runs in both modes, so behaviour is identical — only *where* and *when* it runs
+changes.

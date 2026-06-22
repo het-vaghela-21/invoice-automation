@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   uploadInvoice, getInvoices, getInvoice, deleteInvoice,
-  triggerOCR, updateFields, submitMatching, rejectInvoice, exportInvoicesCSV
+  triggerOCR, updateFields, submitMatching, rejectInvoice, exportInvoicesCSV,
+  getJobStatus
 } = require('../controllers/invoiceController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -19,6 +20,9 @@ router.route('/').get(getInvoices).post(canEdit, upload.single('invoice'), uploa
 // Must be registered before '/:id' — otherwise Express would treat "export"
 // as an :id value and route it to getInvoice instead.
 router.get('/export', exportInvoicesCSV);
+// Poll a background job's state after a 202 (queued) OCR/match response.
+// Registered before '/:id' so "jobs" isn't captured as an invoice :id.
+router.get('/jobs/:jobId', getJobStatus);
 router.route('/:id').get(getInvoice).delete(authorize('admin'), deleteInvoice);
 router.post('/:id/ocr', canEdit, triggerOCR);
 router.patch('/:id/fields', canEdit, updateFieldsRules, handleValidation, updateFields);

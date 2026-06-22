@@ -45,10 +45,22 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/invoice-automation';
 
+// maxPoolSize controls how many concurrent MongoDB operations the server can
+// have in flight. The driver default (100) is fine for most loads; expose it so
+// it can be tuned per deployment. Bump it if you run many API/worker processes.
 mongoose
-  .connect(MONGODB_URI)
+  .connect(MONGODB_URI, { maxPoolSize: Number(process.env.MONGO_POOL_SIZE) || 100 })
   .then(() => {
     console.log('Connected to MongoDB');
+
+    // For single-machine dev/small deployments you can run the BullMQ worker in
+    // the same process as the API (RUN_WORKER_INLINE=true) instead of a separate
+    // `npm run worker`. For real scale, run dedicated worker processes instead.
+    if (process.env.RUN_WORKER_INLINE === 'true') {
+      const { startInvoiceWorker } = require('./src/workers/invoiceWorker');
+      startInvoiceWorker();
+    }
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
