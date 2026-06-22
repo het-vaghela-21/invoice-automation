@@ -88,6 +88,10 @@ const invoiceSchema = new mongoose.Schema(
       enum: ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'],
       default: 'uploaded'
     },
+    // ML anomaly detection results (Isolation Forest in the Python ML service).
+    // null/unknown until matching runs, or whenever the ML service is unavailable.
+    anomalyScore: { type: Number, default: null },
+    riskLevel:    { type: String, enum: ['low', 'medium', 'high', 'unknown'], default: 'unknown' },
     processingLog: [processingLogSchema],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },

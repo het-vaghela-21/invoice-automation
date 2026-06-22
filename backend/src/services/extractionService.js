@@ -182,7 +182,79 @@ function extractLineItems(text) {
   return lineItems;
 }
 
-function extractInvoiceData(rawText) {
+// ml-service/mlClient.js lives at the repo root; this file is three levels
+// deeper (backend/src/services/), hence the ../../../ prefix.
+const mlClient = require('../../../ml-service/mlClient');
+
+// Maps the spaCy NER labels returned by the ML /extract endpoint onto our
+// extractedData field keys. Anything not listed here (subTotal, tax, dueDate,
+// currency, lineItems) stays purely regex-driven.
+const ML_FIELD_MAP = {
+  vendorName:    'VENDOR',
+  invoiceNumber: 'INV_NUM',
+  totalAmount:   'AMOUNT',
+  invoiceDate:   'INV_DATE',
+  poNumber:      'PO_NUM',
+  gstNumber:     'GST_NUM',
+  bankAccount:   'BANK_ACC',
+};
+
+// Rough document-position hint per field, fed to the ML confidence model as a
+// feature (vendor name usually near the top, bank details near the bottom).
+const ML_POSITION_HINT = {
+  vendorName: 0.9, invoiceNumber: 0.7, totalAmount: 0.6,
+  invoiceDate: 0.6, poNumber: 0.5, gstNumber: 0.5, bankAccount: 0.4,
+};
+
+function parseMLAmount(str) {
+  if (str == null) return null;
+  const n = parseFloat(String(str).replace(/[^0-9.\-]/g, ''));
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Overlay ML-extracted fields on top of the regex result, mutating `base`.
+ * ML wins per-field only when it actually returns a value — every field it
+ * misses keeps the regex value, so this strictly improves on regex rather
+ * than replacing it. Throwing (e.g. ML service down) is left to the caller,
+ * which keeps the full regex result as fallback.
+ */
+async function applyMLExtraction(base, rawText) {
+  const mlResult = await mlClient.extract(rawText);
+  const grouped = mlResult.grouped || {};
+
+  const getConfidence = async (value, position) => {
+    const formatValid = value && value.length > 2 ? 1 : 0;
+    const lengthNorm = Math.min(value ? value.length / 50 : 0, 1.0);
+    try {
+      const result = await mlClient.confidence({
+        label_proximity: 1, // NER found it, so a label was nearby
+        pattern_match_count: 1,
+        appears_multiple_times: 0,
+        format_valid: formatValid,
+        value_length_norm: lengthNorm,
+        position_score: position,
+      });
+      return result.confidence_pct;
+    } catch {
+      return null; // confidence call failed — keep the field, drop to regex confidence
+    }
+  };
+
+  for (const [field, mlLabel] of Object.entries(ML_FIELD_MAP)) {
+    const raw = grouped[mlLabel];
+    if (raw == null || !String(raw).trim()) continue; // ML found nothing → keep regex value
+    const value = String(raw).trim();
+    const conf = await getConfidence(value, ML_POSITION_HINT[field]);
+    base[field] = {
+      value: field === 'totalAmount' ? parseMLAmount(value) : value,
+      confidence: conf != null ? Math.round(conf) : (base[field]?.confidence || 0),
+    };
+  }
+  return base;
+}
+
+async function extractInvoiceData(rawText) {
   if (!rawText?.trim()) {
     return {
       invoiceNumber: { value: null, confidence: 0 },
@@ -201,26 +273,41 @@ function extractInvoiceData(rawText) {
     };
   }
 
-  const invoiceNumber = extractInvoiceNumber(rawText);
-  const vendorName    = extractVendorName(rawText);
-  const gstNumber     = extractGSTNumber(rawText);
-  const poNumber      = extractPONumber(rawText);
+  // 1) Regex extraction first — this is the baseline and the fallback.
+  const base = {
+    invoiceNumber: extractInvoiceNumber(rawText),
+    vendorName:    extractVendorName(rawText),
+    gstNumber:     extractGSTNumber(rawText),
+    poNumber:      extractPONumber(rawText),
+    bankAccount:   extractBankAccount(rawText),
+    currency:      extractCurrency(rawText),
+    lineItems:     extractLineItems(rawText),
+  };
   const { invoiceDate, dueDate } = extractDates(rawText);
   const { totalAmount, subTotal, tax } = extractAmounts(rawText);
-  const currency    = extractCurrency(rawText);
-  const lineItems   = extractLineItems(rawText);
-  const bankAccount = extractBankAccount(rawText);
+  base.invoiceDate = invoiceDate;
+  base.dueDate     = dueDate;
+  base.totalAmount = totalAmount;
+  base.subTotal    = subTotal;
+  base.tax         = tax;
 
-  const keyFields = [invoiceNumber, vendorName, invoiceDate, totalAmount];
-  const extractedFieldCount = keyFields.filter((f) => f.value !== null).length;
+  // 2) Overlay the ML model's extraction. If the ML service is unreachable we
+  //    log and keep the regex result — the system stays fully functional.
+  try {
+    await applyMLExtraction(base, rawText);
+  } catch (mlError) {
+    console.error('ML service unavailable, falling back to regex extraction:', mlError.message);
+  }
+
+  // 3) Confidence/counts reflect the FINAL merged fields, not just regex.
+  const keyFields = [base.invoiceNumber, base.vendorName, base.invoiceDate, base.totalAmount];
+  const extractedFieldCount = keyFields.filter((f) => f.value !== null && f.value !== '').length;
   const overallConfidence = Math.round(
-    keyFields.reduce((sum, f) => sum + f.confidence, 0) / keyFields.length
+    keyFields.reduce((sum, f) => sum + (f.confidence || 0), 0) / keyFields.length
   );
 
   return {
-    invoiceNumber, vendorName, gstNumber, poNumber,
-    invoiceDate, dueDate, lineItems,
-    subTotal, tax, totalAmount, currency, bankAccount,
+    ...base,
     overallConfidence, extractedFieldCount, totalFields: keyFields.length
   };
 }

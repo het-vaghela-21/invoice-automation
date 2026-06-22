@@ -1,0 +1,11 @@
+# Trained model artifacts are large binaries — keep them out of git.
+# They live on disk locally; use Git LFS or external storage if you need to
+# share them. The ML service loads them from ./models at startup.
+models/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/

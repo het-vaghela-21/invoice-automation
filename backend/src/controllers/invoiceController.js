@@ -6,6 +6,8 @@ const { extractText } = require('../services/ocrService');
 const { extractInvoiceData } = require('../services/extractionService');
 const { computeFileHash, checkDuplicate, validateAgainstPO, findPurchaseOrderByNumber } = require('../services/validationService');
 const { toCSV } = require('../utils/csv');
+// ml-service/mlClient.js is at the repo root; this file is under backend/src/controllers/.
+const mlClient = require('../../../ml-service/mlClient');
 
 // Helper: flatten extractedData into a key→value map for matching
 function flattenExtracted(extractedData) {
@@ -80,7 +82,7 @@ exports.triggerOCR = async (req, res, next) => {
       const { text, confidence, method } = await extractText(filePath, invoice.uploadedFile.mimetype);
       invoice.ocrText = text;
 
-      const extractedData = extractInvoiceData(text);
+      const extractedData = await extractInvoiceData(text);
       invoice.extractedData = extractedData;
       if (extractedData.invoiceNumber?.value) invoice.invoiceNumber = extractedData.invoiceNumber.value;
 
@@ -234,7 +236,29 @@ exports.submitMatching = async (req, res, next) => {
     if (invoice.purchaseOrder) {
       const po = invoice.purchaseOrder;
       const vendor = po.vendor || invoice.vendor;
-      validationResult = validateAgainstPO(verifiedData, po, vendor);
+
+      // Ask the ML service for a semantic vendor-name match, which can rescue a
+      // genuine match that validateAgainstPO's substring comparison misses
+      // (e.g. "TechCorp" vs "Technology Corporation"). Best-effort: if the ML
+      // service is down we just don't pass the hint and substring matching
+      // stands on its own.
+      let mlVendorMatch;
+      const poVendorName = vendor?.name;
+      if (verifiedData.vendorName && poVendorName) {
+        try {
+          const m = await mlClient.match(verifiedData.vendorName, poVendorName);
+          mlVendorMatch = m.is_match;
+          invoice.processingLog.push({
+            action: 'ML Vendor Match',
+            details: `"${verifiedData.vendorName}" vs "${poVendorName}" → ${(m.similarity * 100).toFixed(1)}% similar (${m.is_match ? 'match' : 'no match'})`,
+            status: 'info'
+          });
+        } catch (mlError) {
+          console.error('ML match unavailable, falling back to substring match:', mlError.message);
+        }
+      }
+
+      validationResult = validateAgainstPO(verifiedData, po, vendor, { mlVendorMatch });
       validationResult.duplicateCheck = duplicateCheck;
     } else {
       // No Purchase Order could be linked — by upload time, OCR auto-detection,
@@ -319,6 +343,62 @@ exports.submitMatching = async (req, res, next) => {
         details: `PO automatically closed after this invoice passed verification — it can no longer be matched against another invoice`,
         status: 'info'
       });
+    }
+
+    // ── ML anomaly scoring ────────────────────────────────────────────────
+    // Score this invoice for anomalous spend against the vendor's own history
+    // (Isolation Forest in the Python ML service). Purely informational — it
+    // annotates the invoice with a risk level but does not change the
+    // pass/review decision. Best-effort: if the ML service is down the invoice
+    // still saves, just with riskLevel "unknown".
+    try {
+      const amount = parseFloat(verifiedData.totalAmount) || 0;
+      const poTotal = invoice.purchaseOrder?.totalAmount || null;
+      const lineItemCount = verifiedData.lineItems?.length || 1;
+      const vendorId = invoice.vendor?._id || invoice.vendor;
+
+      // Derive history-based features from this vendor's prior invoices.
+      let amountZscore = 0, frequency = 0, daysSinceLast = 0;
+      if (vendorId) {
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const priorInvoices = await Invoice.find({ vendor: vendorId, _id: { $ne: invoice._id } })
+          .select('userVerifiedData extractedData createdAt')
+          .sort({ createdAt: -1 });
+
+        frequency = priorInvoices.filter((p) => p.createdAt >= since).length;
+        if (priorInvoices.length) {
+          daysSinceLast = Math.round((Date.now() - new Date(priorInvoices[0].createdAt).getTime()) / (24 * 60 * 60 * 1000));
+          const amounts = priorInvoices
+            .map((p) => parseFloat(p.userVerifiedData?.totalAmount ?? p.extractedData?.totalAmount?.value))
+            .filter((n) => !Number.isNaN(n));
+          if (amounts.length) {
+            const mean = amounts.reduce((s, n) => s + n, 0) / amounts.length;
+            const std = Math.sqrt(amounts.reduce((s, n) => s + (n - mean) ** 2, 0) / amounts.length);
+            amountZscore = std > 0 ? (amount - mean) / std : 0;
+          }
+        }
+      }
+
+      const anomalyResult = await mlClient.anomaly({
+        amount_zscore:            Number(amountZscore.toFixed(4)),
+        amount_to_po_ratio:       poTotal ? Number((amount / poTotal).toFixed(4)) : 1,
+        vendor_invoice_frequency: frequency,
+        days_since_last_invoice:  daysSinceLast,
+        line_item_count:          lineItemCount,
+        amount_per_line_item:     Number((amount / lineItemCount).toFixed(2)),
+        is_round_number:          amount % 1000 === 0 ? 1 : 0,
+      });
+      invoice.anomalyScore = anomalyResult.anomaly_score;
+      invoice.riskLevel = anomalyResult.risk_level;
+      invoice.processingLog.push({
+        action: 'Anomaly Scored',
+        details: `Risk level: ${anomalyResult.risk_level} (anomaly score ${anomalyResult.anomaly_score})`,
+        status: anomalyResult.risk_level === 'high' ? 'warning' : 'info'
+      });
+    } catch (mlError) {
+      console.error('ML anomaly unavailable:', mlError.message);
+      invoice.anomalyScore = null;
+      invoice.riskLevel = 'unknown';
     }
 
     await invoice.save();

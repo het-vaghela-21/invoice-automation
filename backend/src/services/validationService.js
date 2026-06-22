@@ -80,7 +80,7 @@ function amountsMatch(val1, val2, tolerancePct = 5) {
  * @param {object} purchaseOrder - Populated PurchaseOrder document
  * @param {object} vendor - Populated Vendor document
  */
-function validateAgainstPO(verifiedData, purchaseOrder, vendor) {
+function validateAgainstPO(verifiedData, purchaseOrder, vendor, options = {}) {
   const discrepancies = [];
   let scorePoints = 0;
 
@@ -111,11 +111,16 @@ function validateAgainstPO(verifiedData, purchaseOrder, vendor) {
     return v != null ? String(v).trim() : null;
   };
 
-  // Vendor Name (20 pts)
+  // Vendor Name (20 pts). Substring comparison is the baseline; the optional
+  // options.mlVendorMatch (semantic match from the ML service, computed by the
+  // caller) can rescue a real match that substring comparison misses — e.g.
+  // "TechCorp" vs "Technology Corporation". It only ever upgrades a non-match
+  // to a match, never the reverse, so a flaky/false ML negative can't wrongly
+  // flag a legitimate vendor. With no options arg, behaviour is unchanged.
   const extractedVendorName = getStr('vendorName');
   const expectedVendorName = vendor?.name;
   if (extractedVendorName && expectedVendorName) {
-    if (vendorNamesMatch(extractedVendorName, expectedVendorName)) {
+    if (vendorNamesMatch(extractedVendorName, expectedVendorName) || options.mlVendorMatch === true) {
       scorePoints += 20;
     } else {
       discrepancies.push({ field: 'vendorName', expected: expectedVendorName, actual: extractedVendorName, severity: 'high' });
