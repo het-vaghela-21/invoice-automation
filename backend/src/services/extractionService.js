@@ -182,9 +182,7 @@ function extractLineItems(text) {
   return lineItems;
 }
 
-// ml-service/mlClient.js lives at the repo root; this file is three levels
-// deeper (backend/src/services/), hence the ../../../ prefix.
-const mlClient = require('../../../ml-service/mlClient');
+const mlClient = require('./mlClient');
 
 // Maps the spaCy NER labels returned by the ML /extract endpoint onto our
 // extractedData field keys. Anything not listed here (subTotal, tax, dueDate,

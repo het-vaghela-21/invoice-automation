@@ -6,8 +6,7 @@ const { extractText } = require('../services/ocrService');
 const { extractInvoiceData } = require('../services/extractionService');
 const { computeFileHash, checkDuplicate, validateAgainstPO, findPurchaseOrderByNumber } = require('../services/validationService');
 const { toCSV } = require('../utils/csv');
-// ml-service/mlClient.js is at the repo root; this file is under backend/src/controllers/.
-const mlClient = require('../../../ml-service/mlClient');
+const mlClient = require('../services/mlClient');
 
 // Helper: flatten extractedData into a key→value map for matching
 function flattenExtracted(extractedData) {
