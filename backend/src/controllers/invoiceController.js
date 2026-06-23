@@ -1,9 +1,9 @@
 const path = require('path');
 const Invoice = require('../models/Invoice');
 const PurchaseOrder = require('../models/PurchaseOrder');
-const { computeFileHash } = require('../services/validationService');
 const { runOCR, runMatching, flattenExtracted } = require('../services/invoiceProcessor');
 const { isQueueReady, enqueueInvoiceJob, getJobStatus } = require('../config/queue');
+const storage = require('../services/storageService');
 const { toCSV } = require('../utils/csv');
 
 // Upload: store file only, no OCR
@@ -12,9 +12,11 @@ exports.uploadInvoice = async (req, res, next) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
     const { purchaseOrderId } = req.body;
-    const filePath = path.join('uploads', req.file.filename);
-    const absolutePath = path.join(__dirname, '../../', filePath);
-    const fileHash = computeFileHash(absolutePath);
+    // Multer has already written the upload to local disk. Hash it before moving
+    // it anywhere, then hand it to the storage layer (local disk or MinIO).
+    const absolutePath = path.join(__dirname, '../../uploads', req.file.filename);
+    const fileHash = storage.computeHash(absolutePath);
+    const stored = await storage.persistUpload(req.file);
 
     let vendor;
     if (purchaseOrderId) {
@@ -30,7 +32,8 @@ exports.uploadInvoice = async (req, res, next) => {
         filename: req.file.filename,
         originalName: req.file.originalname,
         mimetype: req.file.mimetype,
-        path: filePath,
+        path: stored.path,
+        storage: stored.storage,
         size: req.file.size,
         hash: fileHash
       },
@@ -239,6 +242,8 @@ exports.deleteInvoice = async (req, res, next) => {
   try {
     const invoice = await Invoice.findByIdAndDelete(req.params.id);
     if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    // Best-effort cleanup of the stored file (local disk and/or MinIO object).
+    await storage.remove(invoice.uploadedFile);
     res.json({ success: true, message: 'Invoice deleted' });
   } catch (err) { next(err); }
 };

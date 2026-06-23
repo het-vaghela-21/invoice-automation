@@ -141,6 +141,15 @@ sudo nginx -t && sudo systemctl reload nginx
 The config and the full production topology (bring-up order, scaling levers) are
 documented in [`deploy/README.md`](deploy/README.md).
 
+### File storage (local disk vs MinIO)
+
+By default invoice files are stored on local disk (`STORAGE_BACKEND=local`) — no
+setup needed. To run workers across multiple machines you need shared storage, so
+the backend also supports MinIO (`STORAGE_BACKEND=minio`), a self-hosted
+S3-compatible object store. It degrades gracefully: if MinIO is configured but
+unreachable at startup, the backend falls back to local disk. Setup steps are in
+[`deploy/README.md`](deploy/README.md#shared-file-storage-minio).
+
 ## How the ML integration degrades gracefully
 
 | Capability         | With ML service              | Without ML service (fallback)        |

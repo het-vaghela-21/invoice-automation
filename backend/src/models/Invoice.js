@@ -48,6 +48,10 @@ const invoiceSchema = new mongoose.Schema(
       originalName: String,
       mimetype: String,
       path: String,
+      // Which storage backend holds the file: 'local' (disk) or 'minio' (object
+      // store). Defaults to local so documents created before MinIO existed, and
+      // any created in local mode, resolve correctly.
+      storage: { type: String, enum: ['local', 'minio'], default: 'local' },
       size: Number,
       hash: String
     },

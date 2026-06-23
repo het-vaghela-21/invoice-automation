@@ -46,7 +46,53 @@ on each service's environment variables.
 
 | File | Purpose |
 |---|---|
-| `nginx/invoice-automation.conf` | Reverse proxy: serves the React build, proxies `/api` to the PM2 cluster, serves `/uploads` from disk, terminates TLS, gzip + caching + upload size limit + security headers. |
+| `nginx/invoice-automation.conf` | Reverse proxy: serves the React build, proxies `/api` and `/uploads` to the PM2 cluster, terminates TLS, gzip + caching + upload size limit + security headers. |
+
+## Shared file storage (MinIO)
+
+By default the backend stores invoice files on local disk (`STORAGE_BACKEND=local`).
+That's fine on a single machine, but the moment you run workers on a **second
+host** it breaks: a worker on host B can't read a file that the API on host A
+wrote to its local disk. MinIO (self-hosted, S3-compatible, free) fixes this by
+giving every process one shared bucket.
+
+### Run MinIO
+
+```bash
+# Docker (simplest)
+docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  -v /srv/minio-data:/data \
+  minio/minio server /data --console-address ":9001"
+```
+
+The web console is at `http://localhost:9001`. The S3 API (what the backend
+talks to) is on `:9000`.
+
+### Point the backend at it
+
+Set these in `backend/.env` (see `.env.example`) on **every** API and worker host:
+
+```ini
+STORAGE_BACKEND=minio
+MINIO_ENDPOINT=127.0.0.1     # or the MinIO host's address
+MINIO_PORT=9000
+MINIO_USE_SSL=false
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=invoices
+```
+
+The backend creates the bucket on startup if it doesn't exist. Uploads stream to
+MinIO and the local temp copy is deleted; OCR/ML workers download the object to a
+temp file on demand and clean it up afterwards. **Graceful degradation:** if
+`STORAGE_BACKEND=minio` but MinIO is unreachable at boot, the backend logs a
+warning and falls back to local disk so it still starts.
+
+> Files uploaded while in `local` mode stay readable after switching to `minio`
+> (each file records its own backend), but they won't be in the bucket — migrate
+> them with `mc cp` if you need every historical file available cluster-wide.
 
 ## Scaling levers (all free)
 

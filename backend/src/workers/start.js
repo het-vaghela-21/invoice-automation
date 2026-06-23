@@ -9,6 +9,7 @@ require('dotenv').config();
 
 const { startInvoiceWorker } = require('./invoiceWorker');
 const { QUEUE_ENABLED, REDIS_URL } = require('../config/queue');
+const storage = require('../services/storageService');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/invoice-automation';
 
@@ -19,9 +20,13 @@ if (!QUEUE_ENABLED) {
 
 mongoose
   .connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('[worker] connected to MongoDB');
     console.log(`[worker] using Redis at ${REDIS_URL}`);
+    // Workers read invoice files (OCR/ML), so they need the storage layer too —
+    // critically, this is what lets a worker on another machine fetch a file
+    // from MinIO that the API on a different host received.
+    await storage.init();
     const worker = startInvoiceWorker();
 
     // Drain in-flight jobs cleanly on shutdown so a deploy/restart doesn't

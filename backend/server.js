@@ -42,8 +42,26 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve uploaded invoice files. Routed through the storage layer so it works
+// whether the file is on local disk or in MinIO. Looking the file up by its
+// (unique, unguessable) filename also means only files that belong to a real
+// invoice are served — stray paths 404.
+const storage = require('./src/services/storageService');
+const Invoice = require('./src/models/Invoice');
+app.get('/uploads/:filename', async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne({ 'uploadedFile.filename': req.params.filename })
+      .select('uploadedFile').lean();
+    if (!invoice) return res.status(404).send('Not found');
+    const { mimetype } = invoice.uploadedFile;
+    if (mimetype) res.type(mimetype);
+    const stream = await storage.createReadStream(invoice.uploadedFile);
+    stream.on('error', () => { if (!res.headersSent) res.status(404).end(); });
+    stream.pipe(res);
+  } catch (err) {
+    res.status(404).send('Not found');
+  }
+});
 
 // Broad rate limiter covers all API routes
 app.use('/api', apiLimiter);
@@ -77,8 +95,12 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/invoic
 // it can be tuned per deployment. Bump it if you run many API/worker processes.
 mongoose
   .connect(MONGODB_URI, { maxPoolSize: Number(process.env.MONGO_POOL_SIZE) || 100 })
-  .then(() => {
+  .then(async () => {
     console.log('Connected to MongoDB');
+
+    // Initialise file storage (local disk or MinIO). Falls back to local if a
+    // MinIO backend is configured but unreachable, so the API still boots.
+    await storage.init();
 
     // For single-machine dev/small deployments you can run the BullMQ worker in
     // the same process as the API (RUN_WORKER_INLINE=true) instead of a separate

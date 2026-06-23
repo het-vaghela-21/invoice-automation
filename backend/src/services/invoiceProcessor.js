@@ -13,13 +13,13 @@
 // Keeping a single source of truth here means the queued and inline paths can
 // never drift apart.
 
-const path = require('path');
 const Invoice = require('../models/Invoice');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Vendor = require('../models/Vendor');
 const { extractText } = require('./ocrService');
 const { extractInvoiceData } = require('./extractionService');
 const { checkDuplicate, validateAgainstPO, findPurchaseOrderByNumber } = require('./validationService');
+const storage = require('./storageService');
 const mlClient = require('./mlClient');
 
 // Flatten extractedData into a key→value map for matching. Mirrors the helper
@@ -55,11 +55,17 @@ async function runOCR(invoiceId) {
   const invoice = await Invoice.findById(invoiceId);
   if (!invoice) throw new Error('Invoice not found');
 
-  const filePath = path.join(__dirname, '../../', invoice.uploadedFile.path);
-  const { text, confidence, method } = await extractText(filePath, invoice.uploadedFile.mimetype);
+  // Resolve a real on-disk path regardless of backend. In MinIO mode this
+  // downloads the object to a temp file; cleanup() removes it afterwards.
+  const { path: filePath, cleanup } = await storage.getLocalPath(invoice.uploadedFile);
+  let text, confidence, method, extractedData;
+  try {
+    ({ text, confidence, method } = await extractText(filePath, invoice.uploadedFile.mimetype));
+    extractedData = await extractInvoiceData(text, filePath);
+  } finally {
+    await cleanup();
+  }
   invoice.ocrText = text;
-
-  const extractedData = await extractInvoiceData(text, filePath);
   invoice.extractedData = extractedData;
   if (extractedData.invoiceNumber?.value) invoice.invoiceNumber = extractedData.invoiceNumber.value;
 
