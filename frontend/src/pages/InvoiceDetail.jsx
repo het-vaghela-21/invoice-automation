@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { invoiceAPI, pollJob } from '../services/api';
+import { invoiceAPI, vendorAPI, poAPI, pollJob } from '../services/api';
 import { getStatusBadge, getScoreColor } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
 import { useAuth } from '../context/AuthContext';
@@ -96,6 +96,24 @@ function FilePreview({ invoice }) {
   );
 }
 
+// Shows the original uploaded invoice document — used on the passed/rejected
+// screens so the final verdict is shown alongside the source document.
+function InvoiceDocumentCard({ invoice }) {
+  return (
+    <div className="card">
+      <h3 className="font-serif font-bold text-ink-900 mb-3 flex items-center gap-2">
+        <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-ivory-400" aria-hidden="true">
+          <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.379 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
+        </svg>
+        Invoice Document
+      </h3>
+      <div className="rounded-lg border border-ivory-200 overflow-hidden bg-ivory-100" style={{ height: '70vh' }}>
+        <FilePreview invoice={invoice} />
+      </div>
+    </div>
+  );
+}
+
 function StatusBar({ status }) {
   const steps = [
     { key: 'uploaded',       label: 'Uploaded' },
@@ -152,6 +170,10 @@ export default function InvoiceDetail() {
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [error, setError] = useState('');
   const [showLog, setShowLog] = useState(false);
+  // Vendor + PO reference data, used to power the cross-verify dropdowns.
+  const [vendors, setVendors] = useState([]);
+  const [pos, setPos] = useState([]);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
   const pageRef = usePageEntrance(!loading && !!invoice);
 
   const load = useCallback(() => {
@@ -175,6 +197,34 @@ export default function InvoiceDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Reference data for the cross-verify dropdowns (all vendors + all POs).
+  useEffect(() => {
+    vendorAPI.getAll({ limit: 200 }).then((r) => setVendors(r.data.data)).catch(() => {});
+    poAPI.getAll({ limit: 500 }).then((r) => setPos(r.data.data)).catch(() => {});
+  }, []);
+
+  // Preselect the vendor: prefer the linked vendor, otherwise try to match the
+  // extracted/verified vendor name against the known vendor list so the PO
+  // dropdown can be scoped immediately.
+  useEffect(() => {
+    if (!invoice) return;
+    if (invoice.vendor?._id) { setSelectedVendorId(invoice.vendor._id); return; }
+    const name = (invoice.userVerifiedData?.vendorName ?? getExtracted(invoice.extractedData, 'vendorName') ?? '')
+      .toString().trim().toLowerCase();
+    if (name && vendors.length) {
+      const m = vendors.find(
+        (v) => v.name.toLowerCase().includes(name) || name.includes(v.name.toLowerCase())
+      );
+      if (m) setSelectedVendorId(m._id);
+    }
+  }, [invoice, vendors]);
+
+  const handleVendorSelect = (vendorId) => {
+    setSelectedVendorId(vendorId);
+    const v = vendors.find((x) => x._id === vendorId);
+    if (v) handleFieldChange('vendorName', v.name);
+  };
 
   const handleFieldChange = (key, value) => {
     setEditedFields((prev) => ({ ...prev, [key]: value }));
@@ -233,6 +283,12 @@ export default function InvoiceDetail() {
   };
 
   const handleMatch = async () => {
+    // Vendor name is compulsory — matching can't proceed without it.
+    if (!(editedFields.vendorName || '').trim()) {
+      setError('Vendor name is required before matching. Edit it or pick a vendor from the dropdown.');
+      toast.error('Vendor name is required');
+      return;
+    }
     setMatchLoading(true); setError('');
     try {
       const fieldsToSave = {};
@@ -288,9 +344,16 @@ export default function InvoiceDetail() {
   const po = invoice.purchaseOrder;
   const vr = invoice.validationResult || {};
   const vendor = invoice.vendor;
+  // vendorName + poNumber get their own dedicated "Vendor & Purchase Order"
+  // section with cross-verify dropdowns, so keep them out of the generic
+  // required/other field lists to avoid rendering duplicate inputs.
+  const SPECIAL_KEYS = ['vendorName', 'poNumber'];
   const requiredFields = vendor?.requiredFields?.length ? vendor.requiredFields : [];
-  const requiredKeys = requiredFields.map((f) => f.fieldKey);
-  const otherKeys = ALL_FIELD_KEYS.filter((k) => !requiredKeys.includes(k));
+  const requiredKeys = requiredFields.map((f) => f.fieldKey).filter((k) => !SPECIAL_KEYS.includes(k));
+  const otherKeys = ALL_FIELD_KEYS.filter((k) => !requiredKeys.includes(k) && !SPECIAL_KEYS.includes(k));
+  const vendorNameValue = (editedFields.vendorName || '').trim();
+  // POs belonging to the currently selected vendor (for the PO cross-check dropdown).
+  const vendorPOs = pos.filter((p) => (p.vendor?._id || p.vendor) === selectedVendorId);
   const showSplitView = ['ocr_extracted', 'pending_review', 'review_required'].includes(invoice.status);
   const knownStatuses = ['uploaded', 'ocr_extracted', 'pending_review', 'review_required', 'passed', 'rejected'];
   const isUnknownStatus = !knownStatuses.includes(invoice.status);
@@ -525,23 +588,105 @@ export default function InvoiceDetail() {
                 </div>
               )}
 
-              {/* Vendor/PO info pill */}
-              {vendor && (
-                <div className="flex items-center justify-between px-3 py-2 bg-white border border-ivory-200 rounded-lg text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-ivory-500 text-xs">Vendor</span>
-                    <span className="font-semibold text-ink-800">{vendor.name}</span>
-                    {po && (
-                      <>
-                        <span className="text-ivory-300">·</span>
-                        <span className="text-ivory-500 text-xs">PO</span>
-                        <span className="font-mono text-xs font-bold text-ink-800">{po.poNumber}</span>
-                      </>
-                    )}
+              {/* Vendor & Purchase Order — compulsory vendor, with dropdowns to
+                  cross-verify the extracted values against known records. */}
+              <div className="bg-white border border-ivory-200 rounded-xl p-4 space-y-4">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-ivory-600 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                  Vendor &amp; Purchase Order
+                </h3>
+
+                {/* Vendor Name (required) */}
+                <div className={`rounded-lg border p-3 transition-colors ${
+                  !vendorNameValue ? 'border-red-300 bg-red-50' :
+                  changedKeys.has('vendorName') ? 'border-amber-300 bg-amber-50' : 'border-ivory-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="field-vendorName" className="text-[10px] font-bold uppercase tracking-wide text-ivory-700">
+                      Vendor Name <span className="text-amber-700" aria-hidden="true">*</span>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      {changedKeys.has('vendorName') && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1 rounded">edited</span>}
+                      <ConfidenceDot value={getConfidence(ext, 'vendorName')} />
+                    </div>
                   </div>
-                  <span className="text-xs text-ivory-400">{requiredKeys.length} required</span>
+                  <input
+                    id="field-vendorName"
+                    type="text"
+                    disabled={!allowWrite}
+                    className={`input text-sm font-mono disabled:bg-ivory-100 disabled:text-ivory-600 disabled:cursor-not-allowed ${
+                      !vendorNameValue ? 'border-red-300 focus:ring-red-300' : changedKeys.has('vendorName') ? 'border-amber-300 focus:ring-amber-300' : ''
+                    }`}
+                    value={editedFields.vendorName ?? ''}
+                    onChange={(e) => handleFieldChange('vendorName', e.target.value)}
+                    placeholder="Enter vendor name"
+                  />
+                  {!vendorNameValue && (
+                    <p className="text-[10px] text-red-600 mt-1">Required — extract or pick a vendor below before matching.</p>
+                  )}
+                  {allowWrite && vendors.length > 0 && (
+                    <div className="mt-2">
+                      <label htmlFor="vendor-select" className="text-[10px] text-ivory-500">If wrong, select the correct vendor</label>
+                      <select
+                        id="vendor-select"
+                        className="input text-xs py-1.5 mt-0.5"
+                        value={selectedVendorId}
+                        onChange={(e) => handleVendorSelect(e.target.value)}
+                      >
+                        <option value="">— choose a known vendor —</option>
+                        {vendors.map((v) => <option key={v._id} value={v._id}>{v.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* PO Number with cross-check dropdown scoped to the vendor */}
+                <div className={`rounded-lg border p-3 transition-colors ${
+                  changedKeys.has('poNumber') ? 'border-amber-300 bg-amber-50' : 'border-ivory-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="field-poNumber" className="text-[10px] font-bold uppercase tracking-wide text-ivory-700">PO Number</label>
+                    <div className="flex items-center gap-1.5">
+                      {changedKeys.has('poNumber') && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1 rounded">edited</span>}
+                      <ConfidenceDot value={getConfidence(ext, 'poNumber')} />
+                    </div>
+                  </div>
+                  <input
+                    id="field-poNumber"
+                    type="text"
+                    disabled={!allowWrite}
+                    className={`input text-sm font-mono disabled:bg-ivory-100 disabled:text-ivory-600 disabled:cursor-not-allowed ${
+                      changedKeys.has('poNumber') ? 'border-amber-300 focus:ring-amber-300' : ''
+                    }`}
+                    value={editedFields.poNumber ?? ''}
+                    onChange={(e) => handleFieldChange('poNumber', e.target.value)}
+                    placeholder="Enter PO number"
+                  />
+                  {allowWrite && (
+                    <div className="mt-2">
+                      <label htmlFor="po-select" className="text-[10px] text-ivory-500">
+                        Cross-check against this vendor's purchase orders
+                      </label>
+                      <select
+                        id="po-select"
+                        className="input text-xs py-1.5 mt-0.5 disabled:bg-ivory-100 disabled:cursor-not-allowed"
+                        value={editedFields.poNumber ?? ''}
+                        onChange={(e) => handleFieldChange('poNumber', e.target.value)}
+                        disabled={!selectedVendorId}
+                      >
+                        <option value="">— select a PO —</option>
+                        {vendorPOs.map((p) => (
+                          <option key={p._id} value={p.poNumber}>
+                            {p.poNumber}{p.totalAmount != null ? ` — ${p.currency || ''} ${Number(p.totalAmount).toFixed(2)}` : ''} ({p.status})
+                          </option>
+                        ))}
+                      </select>
+                      {!selectedVendorId && <p className="text-[10px] text-ivory-500 mt-1">Pick a vendor first to list its POs.</p>}
+                      {selectedVendorId && vendorPOs.length === 0 && <p className="text-[10px] text-ivory-500 mt-1">No purchase orders found for this vendor.</p>}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Required fields */}
               {requiredKeys.length > 0 && (
@@ -679,7 +824,12 @@ export default function InvoiceDetail() {
                       {saveLoading ? 'Saving…' : `Save (${changedKeys.size})`}
                     </button>
                   )}
-                  <button onClick={handleMatch} disabled={matchLoading} className="btn-primary flex-1 text-sm">
+                  <button
+                    onClick={handleMatch}
+                    disabled={matchLoading || !vendorNameValue}
+                    title={!vendorNameValue ? 'Vendor name is required before matching' : undefined}
+                    className="btn-primary flex-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     {matchLoading ? (
                       <span className="flex items-center gap-1.5">
                         <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -780,6 +930,9 @@ export default function InvoiceDetail() {
               </div>
             </div>
           )}
+
+          {/* Original document */}
+          <InvoiceDocumentCard invoice={invoice} />
         </div>
       )}
 
@@ -849,6 +1002,9 @@ export default function InvoiceDetail() {
               </div>
             </div>
           )}
+
+          {/* Original document */}
+          <InvoiceDocumentCard invoice={invoice} />
         </div>
       )}
     </div>

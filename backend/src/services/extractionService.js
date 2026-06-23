@@ -239,16 +239,27 @@ async function applyMLExtraction(base, rawText) {
     }
   };
 
-  for (const [field, mlLabel] of Object.entries(ML_FIELD_MAP)) {
-    const raw = grouped[mlLabel];
-    if (raw == null || !String(raw).trim()) continue; // ML found nothing → keep regex value
-    const value = String(raw).trim();
-    const conf = await getConfidence(value, ML_POSITION_HINT[field]);
+  // Collect the fields the NER model actually found, then score their
+  // confidence in PARALLEL. These confidence calls are independent, so running
+  // them with Promise.all instead of awaiting each in turn collapses N
+  // sequential round-trips to the ML service into roughly one — the single
+  // biggest win for OCR latency when the ML service is reachable but not fast.
+  const found = Object.entries(ML_FIELD_MAP)
+    .map(([field, mlLabel]) => ({ field, raw: grouped[mlLabel] }))
+    .filter(({ raw }) => raw != null && String(raw).trim())
+    .map(({ field, raw }) => ({ field, value: String(raw).trim() }));
+
+  const confidences = await Promise.all(
+    found.map(({ value, field }) => getConfidence(value, ML_POSITION_HINT[field]))
+  );
+
+  found.forEach(({ field, value }, i) => {
+    const conf = confidences[i];
     base[field] = {
       value: field === 'totalAmount' ? parseMLAmount(value) : value,
       confidence: conf != null ? Math.round(conf) : (base[field]?.confidence || 0),
     };
-  }
+  });
   return base;
 }
 

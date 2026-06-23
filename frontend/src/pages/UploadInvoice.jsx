@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { invoiceAPI, poAPI } from '../services/api';
+import { invoiceAPI } from '../services/api';
 import { usePageEntrance, pulse } from '../utils/motion';
 
 const fileSize = (bytes) => {
@@ -13,7 +13,8 @@ const fileSize = (bytes) => {
 
 export default function UploadInvoice() {
   const [file, setFile] = useState(null);
-  const [pos, setPos] = useState([]);
+  // Still honoured when arriving from a PO page ("upload invoice for this PO"),
+  // but there's no manual PO picker anymore — OCR auto-detects the PO number.
   const [selectedPO, setSelectedPO] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,7 +24,6 @@ export default function UploadInvoice() {
   const dropRef = useRef(null);
 
   useEffect(() => {
-    poAPI.getAll({ status: 'approved', limit: 100 }).then((res) => setPos(res.data.data));
     if (location.state?.purchaseOrderId) setSelectedPO(location.state.purchaseOrderId);
   }, [location.state]);
 
@@ -64,8 +64,8 @@ export default function UploadInvoice() {
   };
 
   return (
-    <div ref={pageRef} className="max-w-xl space-y-6">
-      <div data-animate>
+    <div ref={pageRef} className="max-w-xl mx-auto space-y-6">
+      <div className="text-center" data-animate>
         <h1 className="font-serif text-2xl font-bold text-ink-800">Upload Invoice</h1>
         <p className="text-ivory-700 text-sm mt-0.5">Upload a PDF or image invoice to begin extraction and validation</p>
       </div>
@@ -78,25 +78,6 @@ export default function UploadInvoice() {
           {error}
         </div>
       )}
-
-      {/* PO selector — optional override, auto-detection is the default path */}
-      <details className="card" data-animate>
-        <summary className="label cursor-pointer select-none">
-          Override matched Purchase Order <span className="text-ivory-500 font-normal">(optional — click to expand)</span>
-        </summary>
-        <div className="mt-3">
-          <label htmlFor="po-select" className="sr-only">Override matched Purchase Order</label>
-          <select id="po-select" className="input" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
-            <option value="">Auto-detect from the invoice (recommended)</option>
-            {pos.map((po) => (
-              <option key={po._id} value={po._id}>{po.poNumber} — {po.vendor?.name}</option>
-            ))}
-          </select>
-          <p className="text-xs text-ivory-600 mt-2">
-            Normally you don't need this — OCR reads the PO number printed on the invoice and matches it to the right purchase order automatically. Only set this manually if the invoice doesn't show a PO number, or extraction misreads it.
-          </p>
-        </div>
-      </details>
 
       {/* Drop zone */}
       <div className="card" data-animate>
