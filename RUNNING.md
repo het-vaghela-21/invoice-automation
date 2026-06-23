@@ -26,18 +26,49 @@ These are **not** committed to the repo — see `ml-service/.gitignore`.
 ```bash
 cd ml-service
 pip install -r requirements.txt
+```
+
+**Development (single worker):**
+```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+**Production (multi-worker with Gunicorn):**
+```bash
+# -w 4 = 4 worker processes; tune to number of CPU cores
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+```
+
+Each Gunicorn worker loads all four models once at startup (NER, anomaly, matching, confidence) and keeps them in memory, so 4 workers → 4× the concurrent ML throughput with no cold-start cost per request. The `lru_cache` on the embedding step means repeated vendor names are encoded once per worker.
 
 Verify it's up: `curl http://localhost:8000/health` → `{"status":"ok","models_loaded":4}`
 
 ## 2. Node.js backend (port 5000)
 
+**Development (single process):**
 ```bash
 cd backend
-npm install            # installs axios (new) + existing deps
-npm start              # or: npm run dev   (nodemon)
+npm install
+npm run dev   # nodemon hot-reload
 ```
+
+**Production (PM2 cluster mode):**
+```bash
+npm install -g pm2
+cd backend
+npm install
+pm2 start ecosystem.config.js --env production
+
+# Common PM2 commands
+pm2 status                    # see all processes
+pm2 logs invoice-api          # stream API logs
+pm2 logs invoice-worker       # stream worker logs
+pm2 reload invoice-api        # zero-downtime rolling restart
+pm2 stop all                  # stop everything
+pm2 startup                   # generate systemd/init script to auto-start on boot
+```
+
+`ecosystem.config.js` runs `instances: 'max'` API processes in cluster mode (one per CPU core) behind PM2's built-in load balancer, plus 2 dedicated worker processes. All share the same Redis queue and MongoDB pool.
 
 The backend reads `ML_SERVICE_URL` from `backend/.env`
 (defaults to `http://localhost:8000`). With the ML service down you'll see

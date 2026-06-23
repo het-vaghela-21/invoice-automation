@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const authRoutes = require('./src/routes/authRoutes');
@@ -14,6 +15,25 @@ const errorHandler = require('./src/middleware/errorHandler');
 
 const app = express();
 
+// Rate limiters — applied per IP before any route logic.
+// Upload endpoint is expensive (OCR/ML), so it gets a tight limit; general
+// reads get a looser one to support dashboard polling without false positives.
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_UPLOAD) || 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many uploads — please wait a minute before trying again.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_API) || 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests — please slow down.' },
+});
+
 // Middleware
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
@@ -25,11 +45,18 @@ app.use(express.urlencoded({ extended: true }));
 // Serve uploaded files statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+// Broad rate limiter covers all API routes
+app.use('/api', apiLimiter);
+
+// Routes — uploadLimiter is applied inside invoiceRoutes on the POST / handler
 app.use('/api/auth', authRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
-app.use('/api/invoices', invoiceRoutes);
+app.use('/api/invoices', (req, res, next) => {
+  // Tight limit only on the upload endpoint (POST /)
+  if (req.method === 'POST' && req.path === '/') return uploadLimiter(req, res, next);
+  next();
+}, invoiceRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/users', userRoutes);
 

@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
 from sentence_transformers import SentenceTransformer, util
+from functools import lru_cache
 
 app = FastAPI(title="Invoice ML Service", version="1.0.0")
 
@@ -90,12 +91,19 @@ def anomaly(req: AnomalyRequest):
     return {"anomaly_score": round(score, 4), "risk_level": risk}
 
 
+@lru_cache(maxsize=512)
+def _embed(name: str):
+    """Cache embeddings per worker process — avoids re-encoding the same vendor
+    name on every invoice. Cache is per-process (Gunicorn fork), not shared."""
+    return matching_model.encode(name, convert_to_tensor=True)
+
+
 @app.post("/match")
 def match(req: MatchRequest):
     if not req.name1.strip() or not req.name2.strip():
         raise HTTPException(status_code=400, detail="names cannot be empty")
-    emb1 = matching_model.encode(req.name1, convert_to_tensor=True)
-    emb2 = matching_model.encode(req.name2, convert_to_tensor=True)
+    emb1 = _embed(req.name1)
+    emb2 = _embed(req.name2)
     sim = float(max(0.0, util.cos_sim(emb1, emb2).item()))
     return {"similarity": round(sim, 4), "is_match": sim >= 0.5,
             "name1": req.name1, "name2": req.name2}

@@ -1,5 +1,6 @@
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 spacy
 sentence-transformers
 scikit-learn
