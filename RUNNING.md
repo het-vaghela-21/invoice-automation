@@ -18,10 +18,15 @@ matching, and anomaly scoring; add Redis + the worker when you need to scale.
 
 ## 1. Python ML microservice (port 8000)
 
-Requires the trained models to be present under `ml-service/models/`
-(`ner_model/`, `anomaly_model.joblib`, `anomaly_scaler.joblib`,
-`embedding_model/`, `confidence_model.joblib`, `confidence_scaler.joblib`).
+Requires the trained models to be present:
+
+- `ml-service/models/` — `anomaly_model.joblib`, `anomaly_scaler.joblib`, `embedding_model/`, `confidence_model.joblib`, `confidence_scaler.joblib`
+- `ml-service/layoutlmv3_invoice/` — LayoutLMv3 weights (`config.json`, `model.safetensors`, `tokenizer.json`, `tokenizer_config.json`, `preprocessor_config.json`, `processor_config.json`)
+- `ml-service/label_map.json` — 23-label BIO map for LayoutLMv3
+
 These are **not** committed to the repo — see `ml-service/.gitignore`.
+
+Also requires **poppler** for PDF→image conversion. On Windows, install via winget (`oschwartz10612.Poppler`) and set `POPPLER_PATH` in `ml-service/main.py` to the bin directory (default: `D:\poppler\poppler-25.07.0\Library\bin`).
 
 ```bash
 cd ml-service
@@ -39,7 +44,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
-Each Gunicorn worker loads all four models once at startup (NER, anomaly, matching, confidence) and keeps them in memory, so 4 workers → 4× the concurrent ML throughput with no cold-start cost per request. The `lru_cache` on the embedding step means repeated vendor names are encoded once per worker.
+Each Gunicorn worker loads all four models once at startup (LayoutLMv3 + EasyOCR, anomaly, matching, confidence) and keeps them in memory, so 4 workers → 4× the concurrent ML throughput with no cold-start cost per request. The `lru_cache` on the embedding step means repeated vendor names are encoded once per worker.
+
+**Startup time note:** LayoutLMv3 (125M params) + EasyOCR download their first-run weights and take ~15–30 s to warm up on CPU. The service is ready when `/health` responds.
 
 Verify it's up: `curl http://localhost:8000/health` → `{"status":"ok","models_loaded":4}`
 
@@ -121,13 +128,11 @@ npm run dev
 
 | Capability         | With ML service              | Without ML service (fallback)        |
 | ------------------ | ---------------------------- | ------------------------------------ |
-| Field extraction   | spaCy NER + learned confidence, overlaid on regex | regex extraction only |
+| Field extraction   | LayoutLMv3 (layout-aware transformer) fills gaps that regex misses; regex remains primary | regex extraction only |
 | Vendor matching    | semantic similarity rescues fuzzy matches | substring matching only |
 | Anomaly scoring    | Isolation Forest risk level  | `riskLevel: "unknown"`, no score     |
 
-Every ML call is wrapped in try/catch with an 8s timeout
-(`ML_SERVICE_TIMEOUT_MS`), so a slow or absent ML service never blocks the
-invoice pipeline.
+Every ML call is wrapped in try/catch. The `/extract` call uses a 60 s timeout (LayoutLMv3 on CPU takes 5–35 s per document); all other ML calls use 8 s (`ML_SERVICE_TIMEOUT_MS`). A slow or absent ML service never blocks the invoice pipeline.
 
 ## How the queue degrades gracefully
 

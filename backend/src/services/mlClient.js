@@ -49,9 +49,17 @@ async function call(fn) {
 }
 
 const mlClient = {
-  async extract(text) {
+  async extract(filePath) {
+    const FormData = require('form-data');
+    const fs = require('fs');
+    const path = require('path');
     return call(async () => {
-      const res = await axios.post(`${ML_BASE_URL}/extract`, { text }, { timeout: TIMEOUT_MS });
+      const form = new FormData();
+      form.append('file', fs.createReadStream(filePath), path.basename(filePath));
+      const res = await axios.post(`${ML_BASE_URL}/extract`, form, {
+        headers: form.getHeaders(),
+        timeout: 60000,
+      });
       return res.data;
     });
   },

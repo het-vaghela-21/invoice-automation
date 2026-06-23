@@ -132,7 +132,7 @@ Two extractors behind one dispatch function (`extractText`):
 
 A regex-based field extractor that is **optionally augmented by the ML service** (see §14). Each field has its own extractor function (`extractInvoiceNumber`, `extractVendorName`, `extractGSTNumber`, `extractPONumber`, `extractDates`, `extractCurrency`, `extractAmounts`, `extractLineItems`, `extractBankAccount`), each returning `{ value, confidence }`.
 
-`extractInvoiceData(rawText)` is now **async**: it runs all the regex extractors first to build a complete baseline, then calls `applyMLExtraction()`, which hits the ML `POST /extract` endpoint and **overlays the result per-field** — for each field the ML model returns a value for (`ML_FIELD_MAP` maps NER labels like `VENDOR`/`INV_NUM`/`AMOUNT` to our field keys), it replaces the regex value and fetches a learned confidence from `POST /confidence`. Fields the ML model doesn't return (and the extras it never touches — `subTotal`, `tax`, `dueDate`, `currency`, `lineItems`) keep their regex values. If the ML service is unreachable the whole overlay is caught and skipped, leaving the pure regex result. So regex is always the floor, ML only ever improves on it.
+`extractInvoiceData(rawText, filePath)` is **async**: it runs all the regex extractors first to build a complete baseline, then calls `applyMLExtraction()`. This sends the original PDF file to the ML `POST /extract` endpoint (LayoutLMv3 + EasyOCR — see §14) and **fills in fields that regex left empty**. ML does **not** overwrite a field regex already extracted — testing on real invoices showed the current model predicts label-keyword tokens ("Invoice", "Date:") rather than value tokens ("INV-2026-0042", "June 8 2026"), so regex wins where it finds a value and ML supplements where it doesn't. Fields ML never touches (`subTotal`, `tax`, `dueDate`, `currency`, `lineItems`) always stay regex-driven. If the ML service is unreachable the overlay is caught and skipped; the pure regex result is the floor.
 
 A handful of regex design decisions matter here because they were the source of real bugs during development:
 
@@ -225,9 +225,11 @@ Enforced server-side via an `authorize(...roles)` middleware applied per-route (
 
 **There is exactly one admin, by design — not "an admin role anyone can hold."** `admin@company.com` is provisioned directly via `backend/src/utils/seed-test.js`, not through the public registration endpoint, and `PATCH /api/users/:id/role` (admin-only, `backend/src/controllers/userController.js`) refuses two things to keep that invariant intact: it rejects `role: "admin"` outright at the validator (`backend/src/validators/userValidators.js` only allows `accountant`/`viewer`), and it refuses to touch a user whose *current* role is already `admin` — so the admin can manage everyone else's role but can't be reassigned or accidentally lock themselves out. The frontend's Team & Roles page (`frontend/src/pages/Users.jsx`, admin-only route) is where this happens: every new self-registered user shows up there as an `accountant`, and the admin demotes anyone who should be read-only to `viewer` with a dropdown.
 
-## 8. Extension point: pluggable ML extraction (now realized)
+## 8. Pluggable ML extraction — the seam and what's in it now
 
-`extractionService.js` was always designed to be a drop-in-replaceable module, and §14 is that seam in use: `extractInvoiceData()` overlays the ML model's output on the regex baseline without the controller knowing or caring. The seam still holds for going further — swapping the current spaCy NER call for a layout-aware model like LayoutLMv3 means changing only `applyMLExtraction()` (and the `ml-service` endpoint it calls). As long as whatever you plug in returns the same `{ value, confidence }`-shaped field map, `invoiceController.triggerOCR` doesn't change.
+`extractionService.js` is designed as a drop-in-replaceable module: `extractInvoiceData()` overlays ML output on the regex baseline without the controller knowing or caring. The seam is `applyMLExtraction(base, rawText, filePath)` — swap what it calls and everything else stays the same.
+
+**What's in the seam today:** LayoutLMv3 (see §14). The previous occupant was a spaCy NER model; it has been fully replaced. Testing on the project's invoices showed the current LayoutLMv3 weights predict label-keyword positions rather than value spans ("Invoice" instead of "INV-2026-0042"), so the overlay is conservative — ML only fills fields regex left empty, never overwrites a clean regex hit. If a future fine-tuned model produces better span boundaries, the only change needed is in `ml-service/main.py`; the Node side is model-agnostic.
 
 ## 9. PDF annotation overlay (`frontend/src/components/PDFAnnotationViewer.jsx`)
 
@@ -286,39 +288,52 @@ CSV export (`GET /invoices/export`, `GET /purchase-orders/export`) reuses the sa
 
 ## 14. AI/ML layer (integrated, optional at runtime)
 
-A Python FastAPI microservice (`ml-service/`) augments the regex extraction layer and adds two capabilities that can't be expressed as heuristic rules (anomaly detection, semantic vendor matching). It is **wired into the pipeline today**, but **optional at runtime**: the Node backend calls it over HTTP through `ml-service/mlClient.js` (axios, per-call 8s timeout via `ML_SERVICE_TIMEOUT_MS`), and **every call is best-effort** — on any error the caller falls back to the in-process regex/substring logic. `ML_SERVICE_URL` (default `http://localhost:8000`) configures the target.
+A Python FastAPI microservice (`ml-service/`) augments the regex extraction layer and adds two capabilities that can't be expressed as heuristic rules (anomaly detection, semantic vendor matching). It is **wired into the pipeline today**, but **optional at runtime**: the Node backend calls it over HTTP through `backend/src/services/mlClient.js` (axios), and **every call is best-effort** — on any error the caller falls back to the in-process regex/substring logic. `ML_SERVICE_URL` (default `http://localhost:8000`) configures the target.
 
 ### Service (`ml-service/main.py`)
 
-All models load once at startup from `ml-service/models/` (the binaries are not committed — `ml-service/.gitignore`). Endpoints:
+All models load once at startup (the binaries are not committed — `ml-service/.gitignore`). Endpoints:
 
-| Endpoint | Model | Returns |
-|---|---|---|
-| `GET /health` | — | `{ status, models_loaded }` |
-| `POST /extract` | spaCy NER | `{ entities, grouped, entity_count }` — `grouped` maps a NER label (`VENDOR`, `INV_NUM`, `AMOUNT`, `INV_DATE`, `PO_NUM`, `GST_NUM`, `BANK_ACC`) to a value |
-| `POST /confidence` | MLP classifier (scikit-learn) | `{ confidence, confidence_pct }` for one extracted field's features |
-| `POST /match` | Sentence-transformers | `{ similarity, is_match, name1, name2 }` (cosine similarity, `is_match` at ≥ 0.5) |
-| `POST /anomaly` | Isolation Forest (scikit-learn) | `{ anomaly_score, risk_level }` (`low`/`medium`/`high`) |
+| Endpoint | Model | Input | Returns |
+|---|---|---|---|
+| `GET /health` | — | — | `{ status, models_loaded }` |
+| `POST /extract` | LayoutLMv3 + EasyOCR | PDF or image file (multipart) | `{ grouped, word_count, entity_count }` — `grouped` maps entity labels (`VENDOR`, `INV_NUM`, `AMOUNT`, `INV_DATE`, `PO_NUM`, `GST_NUM`, `BANK_ACC`, `ITEM_*`) to values |
+| `POST /confidence` | MLP classifier (scikit-learn) | Field feature vector (JSON) | `{ confidence, confidence_pct }` |
+| `POST /match` | Sentence-transformers | `{ name1, name2 }` (JSON) | `{ similarity, is_match, name1, name2 }` (cosine similarity, `is_match` at ≥ 0.5) |
+| `POST /anomaly` | Isolation Forest (scikit-learn) | Feature vector (JSON) | `{ anomaly_score, risk_level }` (`low`/`medium`/`high`) |
 
-### How each is wired into Node
+### The extraction pipeline: LayoutLMv3 + EasyOCR
 
-- **Extraction + confidence** — `extractionService.extractInvoiceData()` (§5). Regex runs first; `applyMLExtraction()` overlays `/extract` results per-field and pulls each field's confidence from `/confidence`. Regex is the fallback floor.
-- **Vendor match** — `invoiceController.submitMatching` calls `/match` on the verified vendor name vs the PO's vendor name and passes the boolean into `validateAgainstPO(..., { mlVendorMatch })` (§6). It can only rescue a missed match, never break one.
-- **Anomaly scoring** — also in `submitMatching`, after the verdict is set. It derives history-based features from the vendor's prior invoices (amount z-score, 30-day frequency, days-since-last, amount-to-PO ratio, per-line-item amount, round-number flag), calls `/anomaly`, and writes `anomalyScore` + `riskLevel` onto the Invoice. Purely informational — it annotates risk, it does **not** change the `passed`/`review_required` decision. If the service is down, `riskLevel` is set to `"unknown"`.
+`/extract` replaced a spaCy NER model with a layout-aware transformer. The pipeline:
 
-### Design choices worth knowing
+1. **EasyOCR** reads the PDF page (after poppler converts it to an image at 150 DPI) and returns word-level bounding boxes.
+2. Bounding boxes are normalized to 0–1000 (LayoutLMv3's expected coordinate space).
+3. **LayoutLMv3ForTokenClassification** runs token classification over the 23-label BIO scheme (`O` + `B/I-ENTITY` for 11 entity types). Model weights live in `ml-service/layoutlmv3_invoice/`.
+4. The BIO sequence is decoded first-span-per-entity: only the **first** consecutive B→I span for each entity type is kept. This avoids the noise of fusing multiple spans across the whole document into one concatenated string.
 
-- **`validateAgainstPO` stayed pure & synchronous.** All ML side-effects live in the async controller; the validator just receives an optional hint. This kept its 15-case unit suite untouched and free of network mocking.
-- **`extractInvoiceData` became async** and its tests now mock `mlClient` to force the regex path deterministically (so the suite doesn't depend on whether the ML service is up — §13).
-- **Graceful degradation is the contract, not a nicety.** Because trained models live only on the operator's machine (not in the repo), the default running state for a fresh clone *is* "ML service down" — the fallbacks are what make `git clone && npm start` work at all.
+**Current model quality.** The shipped weights perform well on entity *detection* (correct entity types are found) but predict label-keyword tokens ("Invoice", "Date:") as span starts rather than the actual value tokens ("INV-2026-0042", "June 8 2026"). This is a training-data alignment issue — the model likely learned spans that include the field label. As a result, the Node-side `applyMLExtraction()` is configured conservatively: **ML only fills in fields that regex left empty**; it does not overwrite clean regex extractions. Latency on CPU is 5–35 s depending on document complexity (60 s client timeout in `mlClient.js`).
 
-Startup order and the full fallback table: [`RUNNING.md`](../RUNNING.md). Background design specs: [`ML_BRIEFING_FOR_CLAUDE_WEB.md`](../ML_BRIEFING_FOR_CLAUDE_WEB.md), [`PLAN_LINE_ITEM_MATCHING.md`](./PLAN_LINE_ITEM_MATCHING.md).
+**To improve:** fine-tune the LayoutLMv3 weights on the project's own invoices with span annotations that start at the value, not the label. The pipeline code in `main.py` and the Node overlay in `extractionService.js` do not need to change — only the model weights need updating.
+
+### How each endpoint is wired into Node
+
+- **`/extract` + `/confidence`** — `extractionService.extractInvoiceData(rawText, filePath)` (§5). Regex runs first and builds the baseline; `applyMLExtraction()` sends the original PDF file as multipart and overlays ML values only where regex found nothing. Confidence for ML-filled fields comes from `/confidence`. The `filePath` is threaded from `invoiceProcessor.runOCR()` through the extraction call so LayoutLMv3 can use the original file (not just its text).
+- **`/match`** — `invoiceProcessor.runMatching()` calls `/match` with the verified vendor name vs the PO's vendor name and passes the boolean into `validateAgainstPO(..., { mlVendorMatch })` (§6). It can only rescue a missed substring match, never break one.
+- **`/anomaly`** — also in `runMatching()`, after the verdict is set. Derives history-based features from the vendor's prior invoices (amount z-score, 30-day frequency, days-since-last, amount-to-PO ratio, per-line-item amount, round-number flag), calls `/anomaly`, and writes `anomalyScore` + `riskLevel` onto the Invoice. Purely informational — does **not** change the `passed`/`review_required` verdict. If the service is down, `riskLevel` is set to `"unknown"`.
+
+### Design choices
+
+- **`validateAgainstPO` stayed pure & synchronous.** All ML side-effects live in the async processor; the validator receives only an optional boolean hint. Its 15-case unit suite needed no changes and no network mocking.
+- **`extractInvoiceData` is async** and its tests mock `mlClient` to exercise the regex path deterministically, independent of whether the ML service is running (§13).
+- **Graceful degradation is the contract.** Model binaries are not in the repo; a fresh clone runs on regex alone. Every ML call has a try/catch; the system is fully functional without the ML service.
+
+Startup order and the full fallback table: [`RUNNING.md`](../RUNNING.md).
 
 ## 15. Known limitations (by design, not oversight)
 
 - OCR runs synchronously in the request — fine for the current single-instance, low-volume use case, but it would need to move to a background job/queue (e.g. BullMQ) before handling concurrent large-volume uploads.
 - No scanned-PDF → image fallback (see §4).
-- Regex extraction is heuristic; it's accurate for clean, labeled invoices but will degrade on unusual layouts. The ML service (§14) overlays a trained NER model on top when it's running, but the trained model binaries aren't committed, so a fresh clone runs on regex alone until they're provided. The seam is also where a layout-aware model like LayoutLMv3 would plug in (§8).
+- Regex extraction is heuristic; it's accurate for clean, labeled invoices but will degrade on unusual layouts. The ML service (§14) uses LayoutLMv3 for layout-aware extraction when running, but model binaries aren't committed, so a fresh clone runs on regex alone. Current LayoutLMv3 weights tag label keywords instead of value spans on this project's invoices — regex remains the primary extractor; ML fills gaps only. Fine-tuning on domain-specific annotated data is the path to improving ML extraction quality (§8).
 - No real email delivery for password resets — the link is returned directly in the API response outside production (see §7). Swap in a mailer (nodemailer + any SMTP provider) before this goes near real users.
 - Uploaded files are stored on local disk (`backend/uploads/`), not object storage — fine for a single backend instance, not for horizontal scaling.
 - Test coverage is limited to the pure extraction/validation logic (§12) — no integration tests against a real DB/HTTP layer yet.

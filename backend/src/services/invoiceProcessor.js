@@ -59,7 +59,7 @@ async function runOCR(invoiceId) {
   const { text, confidence, method } = await extractText(filePath, invoice.uploadedFile.mimetype);
   invoice.ocrText = text;
 
-  const extractedData = await extractInvoiceData(text);
+  const extractedData = await extractInvoiceData(text, filePath);
   invoice.extractedData = extractedData;
   if (extractedData.invoiceNumber?.value) invoice.invoiceNumber = extractedData.invoiceNumber.value;
 

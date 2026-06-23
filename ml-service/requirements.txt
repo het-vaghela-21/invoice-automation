@@ -1,9 +1,14 @@
 fastapi
 uvicorn[standard]
 gunicorn
-spacy
 sentence-transformers
 scikit-learn
 joblib
 numpy
 pydantic
+transformers
+torch
+torchvision
+pillow
+pdf2image
+easyocr

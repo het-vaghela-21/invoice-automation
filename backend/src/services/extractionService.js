@@ -184,7 +184,7 @@ function extractLineItems(text) {
 
 const mlClient = require('./mlClient');
 
-// Maps the spaCy NER labels returned by the ML /extract endpoint onto our
+// Maps LayoutLMv3 BIO entity labels returned by the ML /extract endpoint onto
 // extractedData field keys. Anything not listed here (subTotal, tax, dueDate,
 // currency, lineItems) stays purely regex-driven.
 const ML_FIELD_MAP = {
@@ -212,21 +212,36 @@ function parseMLAmount(str) {
 
 /**
  * Overlay ML-extracted fields on top of the regex result, mutating `base`.
- * ML wins per-field only when it actually returns a value — every field it
- * misses keeps the regex value, so this strictly improves on regex rather
- * than replacing it. Throwing (e.g. ML service down) is left to the caller,
- * which keeps the full regex result as fallback.
+ * ML fills in fields that regex left empty. It does NOT overwrite a field
+ * that regex already extracted — testing showed the current LayoutLMv3 model
+ * produces lower-quality values than regex for standard invoice formats (it
+ * labels keyword tokens like "Invoice" rather than values like "INV-2026-0042").
+ * Keeping ML as a gap-filler means it can still recover fields regex misses
+ * (e.g. vendor name without a "From:" label) without degrading clean regex hits.
+ * Throwing (e.g. ML service down) is left to the caller.
  */
-async function applyMLExtraction(base, rawText) {
-  const mlResult = await mlClient.extract(rawText);
+async function applyMLExtraction(base, rawText, filePath) {
+  const mlResult = await mlClient.extract(filePath);
   const grouped = mlResult.grouped || {};
+
+  // Only consider fields that regex left empty — ML fills gaps, not overwrites.
+  const gaps = Object.entries(ML_FIELD_MAP)
+    .map(([field, mlLabel]) => ({ field, raw: grouped[mlLabel] }))
+    .filter(({ field, raw }) => {
+      const regexHasValue = base[field]?.value != null && String(base[field].value).trim() !== '';
+      const mlHasValue = raw != null && String(raw).trim() !== '';
+      return !regexHasValue && mlHasValue;
+    })
+    .map(({ field, raw }) => ({ field, value: String(raw).trim() }));
+
+  if (!gaps.length) return base;
 
   const getConfidence = async (value, position) => {
     const formatValid = value && value.length > 2 ? 1 : 0;
     const lengthNorm = Math.min(value ? value.length / 50 : 0, 1.0);
     try {
       const result = await mlClient.confidence({
-        label_proximity: 1, // NER found it, so a label was nearby
+        label_proximity: 1,
         pattern_match_count: 1,
         appears_multiple_times: 0,
         format_valid: formatValid,
@@ -235,35 +250,25 @@ async function applyMLExtraction(base, rawText) {
       });
       return result.confidence_pct;
     } catch {
-      return null; // confidence call failed — keep the field, drop to regex confidence
+      return null;
     }
   };
 
-  // Collect the fields the NER model actually found, then score their
-  // confidence in PARALLEL. These confidence calls are independent, so running
-  // them with Promise.all instead of awaiting each in turn collapses N
-  // sequential round-trips to the ML service into roughly one — the single
-  // biggest win for OCR latency when the ML service is reachable but not fast.
-  const found = Object.entries(ML_FIELD_MAP)
-    .map(([field, mlLabel]) => ({ field, raw: grouped[mlLabel] }))
-    .filter(({ raw }) => raw != null && String(raw).trim())
-    .map(({ field, raw }) => ({ field, value: String(raw).trim() }));
-
   const confidences = await Promise.all(
-    found.map(({ value, field }) => getConfidence(value, ML_POSITION_HINT[field]))
+    gaps.map(({ value, field }) => getConfidence(value, ML_POSITION_HINT[field]))
   );
 
-  found.forEach(({ field, value }, i) => {
+  gaps.forEach(({ field, value }, i) => {
     const conf = confidences[i];
     base[field] = {
       value: field === 'totalAmount' ? parseMLAmount(value) : value,
-      confidence: conf != null ? Math.round(conf) : (base[field]?.confidence || 0),
+      confidence: conf != null ? Math.round(conf) : 50,
     };
   });
   return base;
 }
 
-async function extractInvoiceData(rawText) {
+async function extractInvoiceData(rawText, filePath) {
   if (!rawText?.trim()) {
     return {
       invoiceNumber: { value: null, confidence: 0 },
@@ -303,7 +308,7 @@ async function extractInvoiceData(rawText) {
   // 2) Overlay the ML model's extraction. If the ML service is unreachable we
   //    log and keep the regex result — the system stays fully functional.
   try {
-    await applyMLExtraction(base, rawText);
+    await applyMLExtraction(base, rawText, filePath);
   } catch (mlError) {
     console.error('ML service unavailable, falling back to regex extraction:', mlError.message);
   }

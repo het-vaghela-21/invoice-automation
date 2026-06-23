@@ -3,6 +3,9 @@
 # share them. The ML service loads them from ./models at startup.
 models/
 
+# LayoutLMv3 weights (481 MB) — config/tokenizer files ARE committed, weights are not
+layoutlmv3_invoice/model.safetensors
+
 # Python
 __pycache__/
 *.pyc
