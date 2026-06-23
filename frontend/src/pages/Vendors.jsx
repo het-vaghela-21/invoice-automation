@@ -178,68 +178,70 @@ function VendorModal({ vendor, onClose, onSave }) {
   );
 }
 
-function VendorCard({ vendor, onEdit, onDelete, showEdit, showDelete }) {
+function VendorRow({ vendor, onEdit, onDelete, showEdit, showDelete }) {
   return (
-    <div className="bg-white rounded-xl border border-ivory-300 shadow-card hover:shadow-card-hover hover:border-ivory-400 transition-all duration-200 p-5" data-animate>
-      <div className="flex items-start justify-between mb-3">
-        <Link to={`/vendors/${vendor._id}`} className="flex items-center gap-3 min-w-0 rounded-lg group">
-          <div className="w-10 h-10 bg-ink-600 rounded-xl flex items-center justify-center text-white font-serif font-bold text-lg flex-shrink-0" aria-hidden="true">
+    <tr className="border-b border-ivory-100 hover:bg-ivory-50 transition-colors">
+      <td className="px-4 py-3.5">
+        <Link to={`/vendors/${vendor._id}`} className="flex items-center gap-3 group min-w-0">
+          <div className="w-8 h-8 bg-ink-600 rounded-lg flex items-center justify-center text-white font-serif font-bold text-sm flex-shrink-0" aria-hidden="true">
             {vendor.name[0].toUpperCase()}
           </div>
           <div className="min-w-0">
-            <h3 className="font-serif font-bold text-ink-700 truncate group-hover:text-amber-800 transition-colors">{vendor.name}</h3>
+            <p className="font-semibold text-ink-800 group-hover:text-amber-800 transition-colors truncate text-sm leading-tight">{vendor.name}</p>
             <p className="text-xs text-ivory-600 truncate">{vendor.email}</p>
           </div>
         </Link>
-        <span className={`${getStatusBadge(vendor.status)} ml-2 flex-shrink-0`}>{vendor.status}</span>
-      </div>
-
-      <div className="space-y-1.5 mb-3 text-xs">
-        {vendor.taxId && (
-          <div className="flex items-center gap-2 text-ivory-700">
-            <span className="font-mono bg-ivory-100 px-1.5 py-0.5 rounded text-[10px]">{vendor.taxId}</span>
-            <span className="text-ivory-600">GST/Tax ID</span>
-          </div>
-        )}
-        <div className="flex items-center gap-2 text-ivory-700">
-          <span>{vendor.paymentTerms}</span>
-          <span className="text-ivory-300">·</span>
-          <span>Added {formatDate(vendor.createdAt)}</span>
-        </div>
-      </div>
-
-      {vendor.requiredFields?.length > 0 && (
-        <div className="mb-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-ivory-600 mb-1.5">Required fields</p>
-          <div className="flex flex-wrap gap-1">
+      </td>
+      <td className="px-4 py-3.5">
+        {vendor.taxId
+          ? <span className="font-mono text-xs bg-ivory-100 px-2 py-0.5 rounded text-ivory-800">{vendor.taxId}</span>
+          : <span className="text-ivory-400">—</span>}
+      </td>
+      <td className="px-4 py-3.5 text-xs text-ivory-700">{vendor.paymentTerms || '—'}</td>
+      <td className="px-4 py-3.5">
+        {vendor.requiredFields?.length > 0 ? (
+          <div className="flex flex-wrap gap-1 max-w-[260px]">
             {vendor.requiredFields.map((f) => (
-              <span key={f.fieldKey} className="text-[10px] bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded font-medium">
+              <span key={f.fieldKey} className="text-[10px] bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded font-medium whitespace-nowrap">
                 {f.fieldLabel}
               </span>
             ))}
           </div>
+        ) : <span className="text-ivory-400 text-xs">—</span>}
+      </td>
+      <td className="px-4 py-3.5">
+        <span className={getStatusBadge(vendor.status)}>{vendor.status}</span>
+      </td>
+      <td className="px-4 py-3.5 text-xs text-ivory-700">{formatDate(vendor.createdAt)}</td>
+      <td className="px-4 py-3.5">
+        <div className="flex items-center gap-3">
+          <Link to={`/vendors/${vendor._id}`} className="text-xs font-medium text-amber-800 hover:text-amber-900 transition-colors whitespace-nowrap">
+            View →
+          </Link>
+          {showEdit && (
+            <button
+              onClick={onEdit}
+              aria-label={`Edit ${vendor.name}`}
+              className="text-xs font-medium text-ivory-600 hover:text-ink-800 transition-colors"
+            >
+              Edit
+            </button>
+          )}
+          {showDelete && (
+            <button
+              onClick={onDelete}
+              aria-label={`Delete ${vendor.name}`}
+              className="text-xs text-ivory-400 hover:text-red-700 transition-colors p-1 rounded"
+              title="Delete vendor"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
         </div>
-      )}
-
-      <div className="pt-3 border-t border-ivory-100 space-y-2">
-        <Link
-          to={`/vendors/${vendor._id}`}
-          aria-label={`View details for ${vendor.name}`}
-          className="btn-primary w-full text-xs py-1.5 text-center"
-        >
-          View Details →
-        </Link>
-        {(showEdit || showDelete) && (
-          <div className="flex gap-2">
-            {showEdit && <button onClick={onEdit} aria-label={`Edit vendor ${vendor.name}`} className="btn-secondary flex-1 text-xs py-1.5">Edit</button>}
-            {showDelete && <button onClick={onDelete} aria-label={`Delete vendor ${vendor.name}`} className="flex-1 text-xs py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 transition-all duration-150 font-medium">Delete</button>}
-          </div>
-        )}
-        {!showEdit && !showDelete && (
-          <p className="text-[11px] text-ivory-500 italic text-center">Read-only — your role can't make changes here</p>
-        )}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -283,7 +285,9 @@ export default function Vendors() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-animate>
         <div>
           <h1 className="font-serif text-2xl font-bold text-ink-800">Vendors</h1>
-          <p className="text-ivory-700 text-sm mt-0.5">Manage vendors and their invoice field requirements</p>
+          <p className="text-ivory-700 text-sm mt-0.5" aria-live="polite">
+            {loading ? 'Loading…' : `${vendors.length} vendor${vendors.length !== 1 ? 's' : ''}`}
+          </p>
         </div>
         {allowWrite && (
           <button className="btn-primary self-start sm:self-auto" onClick={() => setModal('add')}>
@@ -310,34 +314,54 @@ export default function Vendors() {
         />
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center h-40" role="status" aria-live="polite">
-          <div className="animate-spin w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full" aria-hidden="true" />
-          <span className="sr-only">Loading vendors…</span>
+      <div className="bg-white rounded-xl border border-ivory-300 shadow-card overflow-hidden" data-animate>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <caption className="sr-only">List of vendors with contact details, payment terms and status</caption>
+            <thead>
+              <tr className="bg-ivory-100 border-b border-ivory-200">
+                {['Vendor', 'Tax ID', 'Terms', 'Required Fields', 'Status', 'Added', 'Actions'].map((h) => (
+                  <th key={h} scope="col" className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">
+                    {h === 'Actions' ? <span className="sr-only">{h}</span> : h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-16">
+                    <div className="flex items-center justify-center gap-2 text-ivory-600" role="status" aria-live="polite">
+                      <div className="animate-spin w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full" />
+                      Loading vendors…
+                    </div>
+                  </td>
+                </tr>
+              ) : vendors.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-16 text-ivory-700">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-10 h-10 mx-auto mb-3 text-ivory-400" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
+                    </svg>
+                    <p className="font-serif font-bold text-ink-700 mb-1">No vendors yet</p>
+                    <p className="text-sm">{allowWrite ? 'Add your first vendor to get started.' : 'Ask an accountant or admin to add one.'}</p>
+                    {allowWrite && <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>}
+                  </td>
+                </tr>
+              ) : vendors.map((v) => (
+                <VendorRow
+                  key={v._id}
+                  vendor={v}
+                  onEdit={() => setModal(v)}
+                  onDelete={() => setDeleteTarget(v)}
+                  showEdit={allowWrite}
+                  showDelete={allowDelete}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
-      ) : vendors.length === 0 ? (
-        <div className="text-center py-16 text-ivory-700">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-12 h-12 mx-auto mb-3 text-ivory-500" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
-          </svg>
-          <p className="font-serif text-lg font-bold text-ink-700">No vendors yet</p>
-          <p className="text-sm">{allowWrite ? 'Add your first vendor to get started.' : 'Ask an accountant or admin to add one.'}</p>
-          {allowWrite && <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {vendors.map((v) => (
-            <VendorCard
-              key={v._id}
-              vendor={v}
-              onEdit={() => setModal(v)}
-              onDelete={() => setDeleteTarget(v)}
-              showEdit={allowWrite}
-              showDelete={allowDelete}
-            />
-          ))}
-        </div>
-      )}
+      </div>
 
       {modal && (
         <VendorModal
