@@ -121,8 +121,25 @@ that's expected and the app works normally, just synchronously.
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev          # dev server with hot reload (proxies /api to :5000)
+npm run build        # production build → frontend/dist (served by Nginx)
 ```
+
+## 5. Nginx reverse proxy (production)
+
+For production, put Nginx in front of everything: it serves the static React
+build, proxies `/api` to the PM2 backend cluster, serves `/uploads` straight off
+disk, and handles TLS, gzip, caching, the upload size limit and security
+headers. In dev you don't need it — Vite's dev server proxies `/api` itself.
+
+```bash
+sudo cp deploy/nginx/invoice-automation.conf /etc/nginx/sites-available/
+sudo ln -s /etc/nginx/sites-available/invoice-automation.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The config and the full production topology (bring-up order, scaling levers) are
+documented in [`deploy/README.md`](deploy/README.md).
 
 ## How the ML integration degrades gracefully
 
