@@ -204,6 +204,11 @@ exports.getInvoices = async (req, res, next) => {
     if (purchaseOrder) query.purchaseOrder = purchaseOrder;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    // List views only render a handful of summary fields, so drop the heavy
+    // sub-documents (raw OCR text, the full processing log, extracted/verified
+    // field maps, field-change history) from the payload. The benchmark flagged
+    // ?limit=100 at ~200 ms, dominated by serialising these. `.lean()` returns
+    // plain objects so Mongoose doesn't hydrate full documents we never mutate.
     const [invoices, total] = await Promise.all([
       Invoice.find(query)
         .populate('vendor', 'name email')
@@ -211,7 +216,8 @@ exports.getInvoices = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .select('-ocrText -processingLog'),
+        .select('-ocrText -processingLog -extractedData -userVerifiedData -fieldChanges')
+        .lean(),
       Invoice.countDocuments(query)
     ]);
     res.json({ success: true, data: invoices, total, page: parseInt(page), pages: Math.ceil(total / limit) });

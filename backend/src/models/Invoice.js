@@ -101,5 +101,11 @@ const invoiceSchema = new mongoose.Schema(
 invoiceSchema.index({ 'uploadedFile.hash': 1 });
 invoiceSchema.index({ status: 1, createdAt: -1 });
 invoiceSchema.index({ vendor: 1 });
+// Compound index for the per-vendor summary endpoint, which filters invoices by
+// vendor AND groups/counts them by status. Without this, that query falls back
+// to the { vendor: 1 } index and then scans matching docs to bucket by status;
+// the compound index lets MongoDB satisfy the (vendor, status) access pattern
+// directly. (Benchmark flagged GET /vendors/:id/summary at ~268 ms.)
+invoiceSchema.index({ vendor: 1, status: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);
