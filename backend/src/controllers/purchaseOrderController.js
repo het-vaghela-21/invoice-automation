@@ -55,7 +55,11 @@ exports.createPurchaseOrder = async (req, res, next) => {
 
 exports.updatePurchaseOrder = async (req, res, next) => {
   try {
-    const po = await PurchaseOrder.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('vendor', 'name email');
+    // Strip system-managed fields so callers cannot reopen a closed PO
+    // (which would defeat the duplicate-payment protection) or overwrite
+    // server-computed totals or the audit trail.
+    const { status, subTotal, tax, totalAmount, createdBy, poNumber, ...safeFields } = req.body;
+    const po = await PurchaseOrder.findByIdAndUpdate(req.params.id, safeFields, { new: true, runValidators: true }).populate('vendor', 'name email');
     if (!po) return res.status(404).json({ success: false, message: 'Purchase order not found' });
     res.json({ success: true, data: po });
   } catch (err) { next(err); }

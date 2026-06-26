@@ -74,7 +74,7 @@ exports.forgotPassword = async (req, res, next) => {
     // shipping to real users — never return resetUrl in production.
     console.log(`[password reset] ${email} -> ${resetUrl}`);
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development') {
       return res.json({ ...generic, resetUrl });
     }
     res.json(generic);
