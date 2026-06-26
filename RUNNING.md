@@ -143,12 +143,23 @@ documented in [`deploy/README.md`](deploy/README.md).
 
 ### File storage (local disk vs MinIO)
 
-By default invoice files are stored on local disk (`STORAGE_BACKEND=local`) — no
-setup needed. To run workers across multiple machines you need shared storage, so
-the backend also supports MinIO (`STORAGE_BACKEND=minio`), a self-hosted
-S3-compatible object store. It degrades gracefully: if MinIO is configured but
-unreachable at startup, the backend falls back to local disk. Setup steps are in
-[`deploy/README.md`](deploy/README.md#shared-file-storage-minio).
+**Default: local disk. You do not need MinIO unless you are running workers on a
+different machine than the API.**
+
+By default (`STORAGE_BACKEND=local`) invoice files are stored in `backend/uploads/`
+on the machine that received the upload. This is the right choice when everything
+runs on one host — it is simpler and faster than object storage.
+
+MinIO becomes necessary only when you scale to multiple machines. A worker process
+on Machine B cannot read a file that the API on Machine A saved to its local disk.
+Setting `STORAGE_BACKEND=minio` points all processes at a shared self-hosted bucket
+so every host can access every file.
+
+If `STORAGE_BACKEND=minio` is set but MinIO is unreachable at startup, the backend
+logs a warning and falls back to local disk automatically.
+
+Full setup steps and a worked diagram of exactly when and why MinIO is needed:
+[`deploy/README.md — Shared file storage`](deploy/README.md#shared-file-storage-minio).
 
 ## How the ML integration degrades gracefully
 

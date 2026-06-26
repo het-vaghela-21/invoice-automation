@@ -50,11 +50,59 @@ on each service's environment variables.
 
 ## Shared file storage (MinIO)
 
+> **TL;DR — you don't need MinIO right now.**
+> On a single machine, leave `STORAGE_BACKEND=local` (the default) and ignore
+> this section entirely. MinIO only becomes necessary when you run the API and
+> workers on **different machines**. It is included in the codebase as a
+> ready-to-activate layer for that moment, not as something you need today.
+
+### Why MinIO exists in this project
+
+Every uploaded invoice file is stored somewhere so OCR and the ML extraction
+can read it later. In `local` mode that somewhere is `backend/uploads/` on
+whatever machine received the upload. That works perfectly when everything
+runs on one host:
+
+```
+Single machine — local disk is fine
+────────────────────────────────────
+API receives upload → writes to /uploads/invoice-123.pdf
+Worker picks up OCR job → reads /uploads/invoice-123.pdf  ✅
+```
+
+The moment you add a second machine — for example, one API server and one or
+more dedicated worker servers — local disk breaks silently:
+
+```
+Two machines — local disk FAILS
+────────────────────────────────────────────────────
+Machine A (API)              Machine B (worker)
+────────────────             ──────────────────
+Receives upload              Picks up OCR job from Redis queue
+Writes to its own            Tries to read /uploads/invoice-123.pdf
+/uploads/ directory          ❌ File doesn't exist on Machine B
+```
+
+MinIO fixes this by giving every process — API servers, OCR workers, ML
+extraction calls — one shared bucket they all read from and write to:
+
+```
+With MinIO — works across any number of machines
+────────────────────────────────────────────────────
+Machine A (API)   →  uploads file to MinIO bucket
+Machine B (worker) → reads same file from MinIO bucket  ✅
+Machine C (worker) → reads same file from MinIO bucket  ✅
+```
+
+### When to turn it on
+
+Enable MinIO **only if** you are running workers (`npm run worker` / PM2
+`invoice-worker`) on a **different physical or virtual machine** than the API.
+If both run on the same host, local disk is simpler, faster, and has no extra
+setup cost.
+
 By default the backend stores invoice files on local disk (`STORAGE_BACKEND=local`).
-That's fine on a single machine, but the moment you run workers on a **second
-host** it breaks: a worker on host B can't read a file that the API on host A
-wrote to its local disk. MinIO (self-hosted, S3-compatible, free) fixes this by
-giving every process one shared bucket.
+MinIO (self-hosted, S3-compatible, free) gives every process one shared bucket.
 
 ### Run MinIO
 
