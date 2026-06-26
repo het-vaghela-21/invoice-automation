@@ -1,6 +1,7 @@
 const path = require('path');
 const Invoice = require('../models/Invoice');
 const PurchaseOrder = require('../models/PurchaseOrder');
+const Vendor = require('../models/Vendor');
 const { runOCR, runMatching, flattenExtracted } = require('../services/invoiceProcessor');
 const { isQueueReady, enqueueInvoiceJob, getJobStatus } = require('../config/queue');
 const storage = require('../services/storageService');
@@ -200,11 +201,23 @@ exports.rejectInvoice = async (req, res, next) => {
 
 exports.getInvoices = async (req, res, next) => {
   try {
-    const { status, vendor, purchaseOrder, page = 1, limit = 20 } = req.query;
+    const { status, vendor, purchaseOrder, search, page = 1, limit = 20 } = req.query;
     const query = {};
     if (status) query.status = status;
     if (vendor) query.vendor = vendor;
     if (purchaseOrder) query.purchaseOrder = purchaseOrder;
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      // Match vendor IDs whose name matches the search term so we can include
+      // vendor-name results without a $lookup (which would break the projection).
+      const matchingVendors = await Vendor.find({ name: re }).select('_id').lean();
+      const vendorIds = matchingVendors.map((v) => v._id);
+      query.$or = [
+        { invoiceNumber: re },
+        { 'uploadedFile.originalName': re },
+        ...(vendorIds.length ? [{ vendor: { $in: vendorIds } }] : []),
+      ];
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     // List views only render a handful of summary fields, so drop the heavy
@@ -252,11 +265,21 @@ exports.deleteInvoice = async (req, res, next) => {
 // but no pagination, since the point is to get everything into a spreadsheet at once.
 exports.exportInvoicesCSV = async (req, res, next) => {
   try {
-    const { status, vendor, purchaseOrder } = req.query;
+    const { status, vendor, purchaseOrder, search } = req.query;
     const query = {};
     if (status) query.status = status;
     if (vendor) query.vendor = vendor;
     if (purchaseOrder) query.purchaseOrder = purchaseOrder;
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const matchingVendors = await Vendor.find({ name: re }).select('_id').lean();
+      const vendorIds = matchingVendors.map((v) => v._id);
+      query.$or = [
+        { invoiceNumber: re },
+        { 'uploadedFile.originalName': re },
+        ...(vendorIds.length ? [{ vendor: { $in: vendorIds } }] : []),
+      ];
+    }
 
     const invoices = await Invoice.find(query)
       .populate('vendor', 'name')

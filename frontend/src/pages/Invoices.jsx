@@ -26,6 +26,8 @@ export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -33,14 +35,26 @@ export default function Invoices() {
   const [exporting, setExporting] = useState(false);
   const LIMIT = 15;
 
+  // Debounce the raw input by 350 ms before triggering a fetch.
+  // Reset to page 1 whenever the effective search term changes.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const load = () => {
     setLoading(true);
-    invoiceAPI.getAll({ status: statusFilter || undefined, page, limit: LIMIT })
+    invoiceAPI.getAll({
+      status: statusFilter || undefined,
+      search: search || undefined,
+      page,
+      limit: LIMIT,
+    })
       .then((res) => { setInvoices(res.data.data); setTotal(res.data.total); })
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [statusFilter, page]);
+  useEffect(() => { load(); }, [statusFilter, search, page]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -60,7 +74,7 @@ export default function Invoices() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const res = await invoiceAPI.exportCSV({ status: statusFilter || undefined });
+      const res = await invoiceAPI.exportCSV({ status: statusFilter || undefined, search: search || undefined });
       downloadBlob(res.data, `invoices-${new Date().toISOString().slice(0, 10)}.csv`);
       toast.success('CSV exported');
     } catch (err) {
@@ -80,7 +94,12 @@ export default function Invoices() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-animate>
         <div>
           <h1 className="font-serif text-2xl font-bold text-ink-800">Invoices</h1>
-          <p className="text-ivory-700 text-sm mt-0.5" aria-live="polite">{total} total invoice{total !== 1 ? 's' : ''}</p>
+          <p className="text-ivory-700 text-sm mt-0.5" aria-live="polite">
+            {search || statusFilter
+              ? <>{total} result{total !== 1 ? 's' : ''}</>
+              : <>{total} total invoice{total !== 1 ? 's' : ''}</>
+            }
+          </p>
         </div>
         <div className="flex gap-2 self-start sm:self-auto">
           <button onClick={handleExport} disabled={exporting || total === 0} className="btn-secondary disabled:opacity-50">
@@ -100,18 +119,48 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* Filter pills */}
-      <div className="flex gap-2 flex-wrap" role="group" aria-label="Filter invoices by status" data-animate>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => { setStatusFilter(f.key); setPage(1); }}
-            aria-pressed={statusFilter === f.key}
-            className={statusFilter === f.key ? 'pill-active' : 'pill'}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* Search + filter row */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center" data-animate>
+        {/* Search input */}
+        <div className="relative flex-1 max-w-sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ivory-500 pointer-events-none" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <label htmlFor="invoice-search" className="sr-only">Search invoices</label>
+          <input
+            id="invoice-search"
+            type="search"
+            className="input pl-9 pr-8"
+            placeholder="Search by invoice #, filename or vendor…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {searchInput && (
+            <button
+              onClick={() => setSearchInput('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-ivory-400 hover:text-ink-700 transition-colors rounded"
+              aria-label="Clear search"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Status filter pills */}
+        <div className="flex gap-2 flex-wrap" role="group" aria-label="Filter invoices by status">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => { setStatusFilter(f.key); setPage(1); }}
+              aria-pressed={statusFilter === f.key}
+              className={statusFilter === f.key ? 'pill-active' : 'pill'}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
@@ -141,10 +190,26 @@ export default function Invoices() {
               ) : invoices.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-16 text-ivory-700">
-                    {statusFilter
-                      ? <>No <strong>{FILTERS.find((f) => f.key === statusFilter)?.label.toLowerCase()}</strong> invoices.{' '}<button onClick={() => { setStatusFilter(''); setPage(1); }} className="text-amber-800 hover:text-amber-900 font-semibold underline underline-offset-2">Clear filter</button></>
-                      : <>{allowWrite ? <><span>No invoices yet. </span><Link to="/upload" className="text-amber-800 hover:text-amber-900 font-semibold">Upload one →</Link></> : 'No invoices yet.'}</>
-                    }
+                    {search || statusFilter ? (
+                      <div className="space-y-2">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-10 h-10 mx-auto text-ivory-400" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                        </svg>
+                        <p className="font-serif font-bold text-ink-700">No invoices match your search</p>
+                        <p className="text-sm text-ivory-500">
+                          {search && <span>Search: &ldquo;{search}&rdquo;{statusFilter ? ' · ' : ''}</span>}
+                          {statusFilter && <span>Status: {FILTERS.find((f) => f.key === statusFilter)?.label}</span>}
+                        </p>
+                        <button
+                          onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setPage(1); }}
+                          className="text-amber-800 hover:text-amber-900 font-semibold underline underline-offset-2 text-sm"
+                        >Clear all filters</button>
+                      </div>
+                    ) : (
+                      allowWrite
+                        ? <><span>No invoices yet. </span><Link to="/upload" className="text-amber-800 hover:text-amber-900 font-semibold">Upload one →</Link></>
+                        : 'No invoices yet.'
+                    )}
                   </td>
                 </tr>
               ) : invoices.map((inv) => (
