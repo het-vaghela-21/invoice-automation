@@ -3,11 +3,13 @@ import { useParams, Link } from 'react-router-dom';
 import { poAPI } from '../services/api';
 import { formatCurrency, formatDate, getStatusBadge } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function PurchaseOrderDetail() {
   const { id } = useParams();
   const [po, setPo] = useState(null);
   const [loading, setLoading] = useState(true);
+  useDocumentTitle(po?.poNumber || 'Purchase Order');
   const pageRef = usePageEntrance(!loading && !!po);
 
   useEffect(() => {

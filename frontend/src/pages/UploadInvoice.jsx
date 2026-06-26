@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { invoiceAPI } from '../services/api';
 import { usePageEntrance, pulse } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const fileSize = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -20,6 +21,7 @@ export default function UploadInvoice() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
+  useDocumentTitle('Upload Invoice');
   const pageRef = usePageEntrance();
   const dropRef = useRef(null);
 

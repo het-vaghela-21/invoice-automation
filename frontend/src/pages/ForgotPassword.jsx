@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { usePageEntrance } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 function Wordmark() {
   return (
@@ -22,6 +23,7 @@ export default function ForgotPassword() {
   const [loading, setLoading] = useState(false);
   const [resetUrl, setResetUrl] = useState(null);
   const [done, setDone] = useState(false);
+  useDocumentTitle('Forgot Password');
   const pageRef = usePageEntrance();
 
   const handleSubmit = async (e) => {

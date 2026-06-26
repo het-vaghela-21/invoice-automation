@@ -7,6 +7,7 @@ import { usePageEntrance } from '../utils/motion';
 import { getStatusBadge } from '../utils/helpers';
 import { useAuth } from '../context/AuthContext';
 import { canWrite } from '../utils/permissions';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 function POModal({ onClose, onSave }) {
   const [vendors, setVendors] = useState([]);
@@ -184,6 +185,7 @@ export default function PurchaseOrders() {
     }
   };
 
+  useDocumentTitle('Purchase Orders');
   const pageRef = usePageEntrance(!loading);
 
   return (
@@ -231,7 +233,9 @@ export default function PurchaseOrders() {
             <thead>
               <tr className="bg-ivory-100 border-b border-ivory-200">
                 {['PO Number', 'Vendor', 'Issue Date', 'Total Amount', 'Status', 'Actions'].map((h) => (
-                  <th key={h} scope="col" className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">{h}</th>
+                  <th key={h} scope="col" className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">
+                    {h === 'Actions' ? <span className="sr-only">{h}</span> : h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -244,7 +248,12 @@ export default function PurchaseOrders() {
                   </div>
                 </td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-14 text-ivory-700">No purchase orders found</td></tr>
+                <tr><td colSpan={6} className="text-center py-14 text-ivory-700">
+                  {statusFilter
+                    ? <><strong className="capitalize">{statusFilter}</strong> purchase orders not found.{' '}<button onClick={() => setStatusFilter('')} className="text-amber-800 hover:text-amber-900 font-semibold underline underline-offset-2">Clear filter</button></>
+                    : allowWrite ? <>No purchase orders yet. <button onClick={() => setShowModal(true)} className="text-amber-800 hover:text-amber-900 font-semibold">Create one →</button></> : 'No purchase orders yet.'
+                  }
+                </td></tr>
               ) : orders.map((po) => (
                 <tr key={po._id} className="border-b border-ivory-100 hover:bg-ivory-50 transition-colors">
                   <td className="px-4 py-3.5">

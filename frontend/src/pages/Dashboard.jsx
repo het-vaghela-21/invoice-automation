@@ -5,6 +5,7 @@ import { dashboardAPI } from '../services/api';
 import { formatDate, getStatusBadge } from '../utils/helpers';
 import { useAuth } from '../context/AuthContext';
 import { usePageEntrance, useCountUp } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const STATUS_COLORS = {
   passed:          '#2d7a5a', // ink-500
@@ -49,6 +50,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  useDocumentTitle('Dashboard');
   const pageRef = usePageEntrance(!loading && !!stats);
 
   useEffect(() => {

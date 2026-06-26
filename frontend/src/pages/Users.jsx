@@ -4,6 +4,7 @@ import { userAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const ROLE_BADGE = {
   admin:      'bg-ink-700 text-white border-ink-700',
@@ -24,6 +25,7 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
+  useDocumentTitle('Users');
   const pageRef = usePageEntrance(!loading);
 
   const load = () => {

@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { vendorAPI } from '../services/api';
 import { formatDate, formatCurrency, getStatusBadge, getScoreColor } from '../utils/helpers';
 import { usePageEntrance } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 function StatCard({ label, value, sub }) {
   return (
@@ -20,6 +21,7 @@ export default function VendorDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  useDocumentTitle(data?.vendor?.name || 'Vendor');
   const pageRef = usePageEntrance(!loading);
 
   useEffect(() => {

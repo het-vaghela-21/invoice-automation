@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePageEntrance } from '../utils/motion';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 function Wordmark() {
   return (
@@ -21,6 +22,7 @@ export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  useDocumentTitle('Sign In');
   const pageRef = usePageEntrance();
 
   const handleSubmit = async (e) => {

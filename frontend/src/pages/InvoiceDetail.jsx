@@ -7,6 +7,7 @@ import { usePageEntrance } from '../utils/motion';
 import { useAuth } from '../context/AuthContext';
 import { canWrite } from '../utils/permissions';
 import PDFAnnotationViewer from '../components/PDFAnnotationViewer';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const FIELD_META = {
   vendorName:    { label: 'Vendor Name',    type: 'text' },
@@ -160,6 +161,7 @@ export default function InvoiceDetail() {
   const { user } = useAuth();
   const allowWrite = canWrite(user);
   const [invoice, setInvoice] = useState(null);
+  useDocumentTitle(invoice ? (invoice.invoiceNumber || invoice.uploadedFile?.originalName || 'Invoice') : 'Invoice');
   const [loading, setLoading] = useState(true);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [matchLoading, setMatchLoading] = useState(false);

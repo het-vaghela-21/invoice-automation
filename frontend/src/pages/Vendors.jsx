@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { usePageEntrance } from '../utils/motion';
 import { useAuth } from '../context/AuthContext';
 import { canWrite, canDelete } from '../utils/permissions';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const ALL_FIELDS = [
   { fieldKey: 'vendorName',    fieldLabel: 'Vendor Name' },
@@ -278,6 +279,7 @@ export default function Vendors() {
     }
   };
 
+  useDocumentTitle('Vendors');
   const pageRef = usePageEntrance(!loading);
 
   return (
@@ -340,12 +342,24 @@ export default function Vendors() {
               ) : vendors.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-16 text-ivory-700">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-10 h-10 mx-auto mb-3 text-ivory-400" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
-                    </svg>
-                    <p className="font-serif font-bold text-ink-700 mb-1">No vendors yet</p>
-                    <p className="text-sm">{allowWrite ? 'Add your first vendor to get started.' : 'Ask an accountant or admin to add one.'}</p>
-                    {allowWrite && <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>}
+                    {search ? (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-10 h-10 mx-auto mb-3 text-ivory-400" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                        </svg>
+                        <p className="font-serif font-bold text-ink-700 mb-1">No vendors match &ldquo;{search}&rdquo;</p>
+                        <button onClick={() => setSearch('')} className="text-amber-800 hover:text-amber-900 font-semibold underline underline-offset-2 text-sm mt-1">Clear search</button>
+                      </>
+                    ) : (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-10 h-10 mx-auto mb-3 text-ivory-400" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
+                        </svg>
+                        <p className="font-serif font-bold text-ink-700 mb-1">No vendors yet</p>
+                        <p className="text-sm">{allowWrite ? 'Add your first vendor to get started.' : 'Ask an accountant or admin to add one.'}</p>
+                        {allowWrite && <button className="btn-primary mt-4" onClick={() => setModal('add')}>Add Vendor</button>}
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : vendors.map((v) => (

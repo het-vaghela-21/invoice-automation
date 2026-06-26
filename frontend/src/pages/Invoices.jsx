@@ -7,6 +7,7 @@ import { usePageEntrance } from '../utils/motion';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useAuth } from '../context/AuthContext';
 import { canWrite, canDelete } from '../utils/permissions';
+import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 const FILTERS = [
   { key: '',               label: 'All' },
@@ -70,6 +71,7 @@ export default function Invoices() {
   };
 
   const pages = Math.ceil(total / LIMIT);
+  useDocumentTitle('Invoices');
   const pageRef = usePageEntrance(!loading);
 
   return (
@@ -139,8 +141,10 @@ export default function Invoices() {
               ) : invoices.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-16 text-ivory-700">
-                    No invoices found.{' '}
-                    {allowWrite && <Link to="/upload" className="text-amber-800 hover:text-amber-900 font-semibold">Upload one →</Link>}
+                    {statusFilter
+                      ? <>No <strong>{FILTERS.find((f) => f.key === statusFilter)?.label.toLowerCase()}</strong> invoices.{' '}<button onClick={() => { setStatusFilter(''); setPage(1); }} className="text-amber-800 hover:text-amber-900 font-semibold underline underline-offset-2">Clear filter</button></>
+                      : <>{allowWrite ? <><span>No invoices yet. </span><Link to="/upload" className="text-amber-800 hover:text-amber-900 font-semibold">Upload one →</Link></> : 'No invoices yet.'}</>
+                    }
                   </td>
                 </tr>
               ) : invoices.map((inv) => (
@@ -205,11 +209,13 @@ export default function Invoices() {
               <button
                 className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
                 disabled={page === 1}
+                aria-label="Previous page"
                 onClick={() => setPage((p) => p - 1)}
               >← Prev</button>
               <button
                 className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
                 disabled={page >= pages}
+                aria-label="Next page"
                 onClick={() => setPage((p) => p + 1)}
               >Next →</button>
             </nav>
