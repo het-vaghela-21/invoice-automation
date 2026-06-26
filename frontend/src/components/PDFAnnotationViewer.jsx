@@ -111,6 +111,7 @@ export default function PDFAnnotationViewer({ invoice }) {
   const [activeField, setActiveField] = useState(null);
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(480);
+  const [imageBlobUrl, setImageBlobUrl] = useState(null);
 
   const ext = invoice.extractedData;
   const hasExtracted = Boolean(
@@ -135,6 +136,24 @@ export default function PDFAnnotationViewer({ invoice }) {
 
   const { filename, mimetype } = invoice.uploadedFile || {};
 
+  // For image invoices: fetch with auth header and create a blob URL so the
+  // <img> tag can display it (plain <img src> can't send Authorization headers).
+  useEffect(() => {
+    if (!filename || mimetype === 'application/pdf') return;
+    const token = localStorage.getItem('token');
+    let objectUrl;
+    fetch(`/uploads/${filename}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+      .then((r) => r.blob())
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setImageBlobUrl(objectUrl);
+      })
+      .catch(() => setImageBlobUrl(null));
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [filename, mimetype]);
+
   // Non-PDF fallback (images)
   if (!filename || mimetype !== 'application/pdf') {
     if (!filename) {
@@ -146,11 +165,17 @@ export default function PDFAnnotationViewer({ invoice }) {
     }
     return (
       <div className="w-full h-full overflow-auto bg-ivory-100 flex items-start justify-center p-4">
-        <img
-          src={`/uploads/${filename}`}
-          alt="Invoice"
-          className="max-w-full object-contain shadow-md rounded"
-        />
+        {imageBlobUrl ? (
+          <img
+            src={imageBlobUrl}
+            alt="Invoice"
+            className="max-w-full object-contain shadow-md rounded"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-40">
+            <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
       </div>
     );
   }
@@ -209,18 +234,29 @@ export default function PDFAnnotationViewer({ invoice }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
             <span>Preview unavailable</span>
-            <a
-              href={`/uploads/${filename}`}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              onClick={() => {
+                const token = localStorage.getItem('token');
+                fetch(`/uploads/${filename}`, {
+                  headers: token ? { Authorization: `Bearer ${token}` } : {}
+                })
+                  .then((r) => r.blob())
+                  .then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, '_blank');
+                  });
+              }}
               className="text-amber-600 hover:underline font-medium"
             >
               Open PDF in new tab
-            </a>
+            </button>
           </div>
         ) : (
           <Document
-            file={`/uploads/${filename}`}
+            file={{
+              url: `/uploads/${filename}`,
+              httpHeaders: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+            }}
             onLoadSuccess={({ numPages }) => setNumPages(numPages)}
             onLoadError={() => setLoadError(true)}
             loading={
