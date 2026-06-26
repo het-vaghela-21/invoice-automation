@@ -35,9 +35,16 @@ This document explains how Ledger is put together internally: the request lifecy
                                               └──────────────────────┘
 ```
 
-The backend is a single Express app (`backend/server.js`). OCR, extraction, and validation are plain Node modules under `backend/src/services/`, called inside the request/response cycle of the invoice controller. There's no job queue; OCR runs while the user waits (the UI shows a spinner during `POST /api/invoices/:id/ocr`).
+The backend is a single Express app (`backend/server.js`). OCR, extraction, and validation are plain Node modules under `backend/src/services/`, all funnelled through `invoiceProcessor.js` which is shared by both the queue-based and inline processing paths.
 
-There is **one optional sidecar**: a Python FastAPI ML microservice (`ml-service/`, port 8000) that the Node backend calls over HTTP via `ml-service/mlClient.js` to augment extraction, vendor matching, and add anomaly scoring (§14). It is optional at runtime — every ML call is wrapped in try/catch with an 8s timeout, and any failure falls back to the in-process regex/substring logic, so the system is fully functional whether or not the ML service is running.
+**Scalability layer** (all optional, each degrades gracefully):
+- **BullMQ + Redis** — OCR and matching are enqueued as background jobs and drained by one or more worker processes (`invoiceWorker.js`). If Redis is unreachable, the backend processes inline (original behaviour).
+- **PM2 cluster** — `ecosystem.config.js` runs one API process per CPU core behind PM2's load balancer, plus dedicated worker processes.
+- **Nginx** — reverse proxy handling TLS, gzip, static file caching, security headers, and upload size limits (`deploy/nginx/invoice-automation.conf`).
+- **MinIO** — S3-compatible self-hosted object storage so uploaded files are accessible across multiple worker/API hosts (`storageService.js`). Falls back to local disk.
+- **Rate limiting** — `express-rate-limit` enforces per-IP limits on uploads and general API calls.
+
+There is **one optional ML sidecar**: a Python FastAPI microservice (`ml-service/`, port 8000) that the Node backend calls over HTTP via `backend/src/services/mlClient.js` — augments extraction (LayoutLMv3 + EasyOCR), vendor matching (sentence-transformers), confidence scoring, and anomaly detection. Every ML call is wrapped in try/catch with an 8 s timeout, and a **circuit breaker** short-circuits all ML calls for 30 s after any connectivity failure so OCR never stalls on a dead service.
 
 In dev, Vite proxies `/api` and `/uploads` to `localhost:5000` (`frontend/vite.config.js`), so the frontend never hardcodes a backend origin.
 
@@ -274,9 +281,19 @@ Legend chips are only rendered for fields where the extracted value is non-null.
 
 ## 11. Data layer
 
-MongoDB via Mongoose, four collections — see [DATA_MODELS.md](./DATA_MODELS.md) for full schemas. No separate caching layer; every list endpoint does plain `find()` + `countDocuments()` pagination. Indexes exist on `Invoice.uploadedFile.hash`, `Invoice.status + createdAt`, `Invoice.vendor`, and a text index on `Vendor.name + email`.
+MongoDB via Mongoose, four collections — see [DATA_MODELS.md](./DATA_MODELS.md) for full schemas. No separate caching layer; every list endpoint does plain `find()` + `countDocuments()` pagination with `.lean()` and targeted projections.
 
-CSV export (`GET /invoices/export`, `GET /purchase-orders/export`) reuses the same query filters as the paginated list endpoints but returns every matching row, built with a small in-house CSV helper (`backend/src/utils/csv.js`) rather than a dependency — the escaping rules for a CSV cell are a handful of lines, not worth a package for this scale of export.
+**Indexes on Invoice:**
+- `{ 'uploadedFile.hash': 1 }` — duplicate detection by file hash
+- `{ status: 1, createdAt: -1 }` — status-filtered list queries
+- `{ vendor: 1 }` — vendor-filtered list queries
+- `{ vendor: 1, status: 1 }` — vendor summary endpoint (aggregate by status per vendor)
+
+**Optimised list queries** (measured improvement vs baseline at 5k invoices, [`PERFORMANCE_BENCHMARKS.md`](./PERFORMANCE_BENCHMARKS.md)):
+- `GET /api/invoices` drops `ocrText`, `processingLog`, `extractedData`, `userVerifiedData`, `fieldChanges` from the list payload and uses `.lean()` — only the fields the list UI renders are included.
+- `GET /api/users` adds `.select('name email role createdAt')` + `.lean()` (322 ms → ~80 ms estimated).
+
+CSV export (`GET /invoices/export`, `GET /purchase-orders/export`) reuses the same query filters but returns every matching row, built with a small in-house CSV helper (`backend/src/utils/csv.js`) rather than a dependency.
 
 ## 12. Input validation
 
@@ -284,7 +301,12 @@ CSV export (`GET /invoices/export`, `GET /purchase-orders/export`) reuses the sa
 
 ## 13. Tests
 
-`backend/src/services/__tests__/` — Jest, pure-function unit tests, no DB or HTTP server needed (`cd backend && npm test`). Covers `extractionService.js` (regression tests for every real extraction bug found during development, including one the test suite itself caught while being written — see §5's note on the `\b` boundary fix) and `validationService.js` (the PO match-scoring formula's point allocations and severity thresholds). The extraction tests `jest.mock` the ML client so they exercise the regex path deterministically (and `await` the now-async `extractInvoiceData`) — they never touch the network regardless of whether the ML service is up; the validation tests need no mocking because `validateAgainstPO` stayed pure (§14). Intentionally does not cover `checkDuplicate` (DB-dependent) or the controllers (would need an HTTP/DB integration harness) — out of scope for the time available; see [SETUP.md §6](./SETUP.md#6-run-tests).
+`backend/src/services/__tests__/` — 30 Jest unit tests, pure-function only, no DB or HTTP server needed (`cd backend && npm test`, completes in under 1 s). Covers:
+
+- **`extractionService.js`** — regression tests for every real extraction bug found during development, including the `\b` boundary fix (§5). Tests mock `mlClient` so they exercise the regex path deterministically, independent of whether the ML service is running.
+- **`validationService.js`** — the PO match-scoring formula's point allocations, severity thresholds, and the auto-detect / auto-close behaviours (§6, §6a). No mocking needed because `validateAgainstPO` stayed pure.
+
+Intentionally does not cover `checkDuplicate` (DB-dependent) or the controllers (need an HTTP/DB integration harness) — see [SETUP.md §6](./SETUP.md#6-run-tests).
 
 ## 14. AI/ML layer (integrated, optional at runtime)
 
@@ -331,9 +353,7 @@ Startup order and the full fallback table: [`RUNNING.md`](../RUNNING.md).
 
 ## 15. Known limitations (by design, not oversight)
 
-- OCR runs synchronously in the request — fine for the current single-instance, low-volume use case, but it would need to move to a background job/queue (e.g. BullMQ) before handling concurrent large-volume uploads.
-- No scanned-PDF → image fallback (see §4).
-- Regex extraction is heuristic; it's accurate for clean, labeled invoices but will degrade on unusual layouts. The ML service (§14) uses LayoutLMv3 for layout-aware extraction when running, but model binaries aren't committed, so a fresh clone runs on regex alone. Current LayoutLMv3 weights tag label keywords instead of value spans on this project's invoices — regex remains the primary extractor; ML fills gaps only. Fine-tuning on domain-specific annotated data is the path to improving ML extraction quality (§8).
-- No real email delivery for password resets — the link is returned directly in the API response outside production (see §7). Swap in a mailer (nodemailer + any SMTP provider) before this goes near real users.
-- Uploaded files are stored on local disk (`backend/uploads/`), not object storage — fine for a single backend instance, not for horizontal scaling.
-- Test coverage is limited to the pure extraction/validation logic (§12) — no integration tests against a real DB/HTTP layer yet.
+- **Scanned PDFs** — `pdf-parse` reads only embedded text layers; there is no PDF-to-image rasterization step feeding Tesseract for image-only PDFs (see §4). The fix (e.g. `pdf-to-img` → Tesseract) is an addition, not an architecture change.
+- **LayoutLMv3 model quality** — the shipped weights tag label-keyword tokens ("Invoice", "Date:") rather than value tokens ("INV-2026-0042"). ML is therefore conservative: it fills only fields regex left empty. Fine-tuning on domain-annotated data with span boundaries at the value (not the label) is the path to making ML the primary extractor (§8).
+- **No real email delivery** — password reset links are returned directly in the API response outside `NODE_ENV=production` (§7). Swap in nodemailer + any SMTP provider before production use.
+- **Test coverage** — 30 unit tests cover the pure extraction/validation logic (§13). No integration tests against a live DB/HTTP layer yet.

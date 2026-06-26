@@ -178,7 +178,7 @@ Partial update — same field rules as create but every field is optional (only 
 Reads need any authenticated role. Upload/OCR/field-edit/match/reject need `accountant` or `admin`. `DELETE` is `admin`-only.
 
 ### `GET /api/invoices`
-Query params: `status`, `vendor`, `purchaseOrder`, `page`, `limit` (default 20). List items omit `ocrText` and `processingLog` for payload size; fetch a single invoice for those.
+Query params: `status`, `vendor`, `purchaseOrder`, `page`, `limit` (default 20). List items omit `ocrText`, `processingLog`, `extractedData`, `userVerifiedData`, and `fieldChanges` for payload size — fetch a single invoice for those fields.
 
 ### `GET /api/invoices/export`
 Same filters as the list endpoint (`status`, `vendor`, `purchaseOrder`), no pagination — returns every matching row as `text/csv` with a `Content-Disposition: attachment` header (invoice number, vendor, PO number, total amount, currency, status, match score, discrepancy count, filename, upload date). Uses verified values where present, falling back to the OCR-extracted value.
@@ -193,10 +193,20 @@ Full invoice document — `extractedData`, `userVerifiedData`, `fieldChanges` (w
 | `invoice` | yes | the file — PDF, JPG, or PNG, max 10 MB |
 | `purchaseOrderId` | no | **manual override, not the expected path.** Bulk/normal usage: omit this — the PO is detected automatically from the invoice's own PO number once OCR runs (see the `/ocr` endpoint below and [ARCHITECTURE.md §6a](./ARCHITECTURE.md#6a-bulk-friendly-po-matching-auto-detect-on-extraction-auto-close-on-pass)). Only set this when the invoice doesn't print a PO number, or extraction is expected to misread it. If set, it always wins — auto-detection never overwrites a manually-chosen PO. |
 
-No OCR runs here — the invoice is created with `status: "uploaded"` and a SHA-256 hash of the file is stored. Response `201` with the created invoice. `400` if no file or wrong mimetype (multer's `fileFilter` rejects anything except `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`).
+No OCR runs here — the invoice is created with `status: "uploaded"` and a SHA-256 hash of the file is stored. The file is stored according to `STORAGE_BACKEND` (local disk or MinIO); `uploadedFile.storage` in the response reflects which backend holds it. Response `201` with the created invoice. `400` if no file or wrong mimetype (multer rejects anything except `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`).
 
 ### `POST /api/invoices/:id/ocr` — run OCR + extraction
-No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable). Runs `pdf-parse` or `Tesseract.js` depending on mimetype, then the regex extractors, then a duplicate check. On success, `status → ocr_extracted` and the populated invoice is returned. `500` with `{"message":"OCR processing failed","error":"..."}` if the OCR engine throws (also logged into `processingLog`).
+No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable).
+
+**If Redis is available (queue mode):** returns immediately with `202`:
+```json
+{ "success": true, "queued": true, "jobId": "123", "message": "OCR queued for processing", "data": { /* invoice at current state */ } }
+```
+Poll `GET /api/invoices/jobs/:jobId` for completion, then re-fetch the invoice.
+
+**If Redis is unavailable (inline mode):** runs synchronously and returns `200` with the finished invoice when done.
+
+In both modes: runs `pdf-parse` or `Tesseract.js` depending on mimetype, then regex extractors (+ optional LayoutLMv3 ML overlay), then a duplicate check. `status → ocr_extracted`. `500` if the OCR engine throws (also logged into `processingLog`).
 
 **If no PO was linked at upload**, this is also where auto-detection happens: the PO number extraction just found is looked up against every PO in the system (any status — not just `approved`, so an invoice referencing an already-closed PO still gets linked rather than silently falling through to a looser fallback) and linked automatically if found. Check `data.purchaseOrder` in the response, or `processingLog` for a `"PO Auto-Matched"` (success) or `"PO Auto-Match Failed"` (warning — no PO with that number exists) entry.
 
@@ -207,7 +217,9 @@ No body. Only valid when `status` is `uploaded` or `ocr_extracted` (re-runnable)
 Only valid when `status` is `ocr_extracted`, `pending_review`, or `review_required`. `fields` is validated as required and must be a non-empty object — `{}` or a missing `fields` key returns `400`. Diffs each key against the current baseline (verified value if present, else the OCR-extracted value) and appends an entry to `fieldChanges` for anything that actually changed (full before/after + who + when). `status → pending_review`. Returns the populated invoice.
 
 ### `POST /api/invoices/:id/match` — run PO matching
-No body. Only valid in the same three statuses as above. Merges `userVerifiedData` over `extractedData`, and:
+No body. Only valid in the same three statuses as above. Like `/ocr`, returns `202 + jobId` if the queue is ready, or `200` with the finished invoice inline if not.
+
+Merges `userVerifiedData` over `extractedData`, and:
 - **if still no PO is linked**, makes one more auto-detection attempt using the verified PO number (covers a user correcting a misread PO number during review before a PO was ever auto-linked at OCR time)
 - re-runs the duplicate check
 - if a PO is linked (whether from upload, OCR auto-detect, or the line above) → scores against it, including a check that the PO's own `status` is `"approved"` (see [ARCHITECTURE.md §6a](./ARCHITECTURE.md#6a-bulk-friendly-po-matching-auto-detect-on-extraction-auto-close-on-pass)) — a `draft`/`closed`/`cancelled` PO is an automatic high-severity discrepancy, forcing review regardless of how well everything else matches
@@ -224,8 +236,15 @@ No body. Only valid in the same three statuses as above. Merges `userVerifiedDat
 ```
 `reason` optional. Works from any status. `status → rejected`.
 
+### `GET /api/invoices/jobs/:jobId` — poll a queued job
+Returned after a `202` response from `/ocr` or `/match`. Returns the job's current state:
+```json
+{ "success": true, "jobId": "123", "state": "completed", "progress": 100 }
+```
+`state` is one of `waiting`, `active`, `completed`, `failed`. On `completed`, re-fetch the invoice with `GET /api/invoices/:id`. On `failed`, check the invoice's `processingLog` for the error. `404` if the job has been cleaned up (treat as `completed` — the invoice has the result).
+
 ### `DELETE /api/invoices/:id`
-`{ "success": true, "message": "Invoice deleted" }`. Does not delete the file from `backend/uploads/`.
+`{ "success": true, "message": "Invoice deleted" }`. Also deletes the stored file from the active storage backend (local disk or MinIO). Best-effort — a missing file doesn't prevent the invoice document from being deleted.
 
 ---
 
