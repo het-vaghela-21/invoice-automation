@@ -251,6 +251,20 @@ exports.getInvoice = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.getInvoiceFile = async (req, res, next) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id).select('uploadedFile').lean();
+    if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    const { mimetype } = invoice.uploadedFile;
+    if (mimetype) res.type(mimetype);
+    const stream = await storage.createReadStream(invoice.uploadedFile);
+    stream.on('error', () => { if (!res.headersSent) res.status(404).end(); });
+    stream.pipe(res);
+  } catch (err) {
+    res.status(404).send('Not found');
+  }
+};
+
 exports.deleteInvoice = async (req, res, next) => {
   try {
     const invoice = await Invoice.findByIdAndDelete(req.params.id);

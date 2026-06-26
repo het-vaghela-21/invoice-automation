@@ -48,8 +48,7 @@ app.use(express.urlencoded({ extended: true }));
 // invoice are served — stray paths 404.
 const storage = require('./src/services/storageService');
 const Invoice = require('./src/models/Invoice');
-const { protect } = require('./src/middleware/auth');
-app.get('/uploads/:filename', protect, async (req, res) => {
+app.get('/uploads/:filename', async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ 'uploadedFile.filename': req.params.filename })
       .select('uploadedFile').lean();

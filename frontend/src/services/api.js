@@ -58,7 +58,8 @@ export const invoiceAPI = {
   rejectInvoice:  (id, reason) => api.post(`/invoices/${id}/reject`, { reason }),
   delete:         (id) => api.delete(`/invoices/${id}`),
   exportCSV:      (params) => api.get('/invoices/export', { params, responseType: 'blob' }),
-  getJobStatus:   (jobId) => api.get(`/invoices/jobs/${jobId}`)
+  getJobStatus:   (jobId) => api.get(`/invoices/jobs/${jobId}`),
+  getFile:        (id) => api.get(`/invoices/${id}/file`, { responseType: 'blob' })
 };
 
 // When OCR/matching is queued (HTTP 202, backend has Redis), the response only

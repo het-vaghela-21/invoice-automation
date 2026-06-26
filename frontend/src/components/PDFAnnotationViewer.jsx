@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
+import { invoiceAPI } from '../services/api';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.js',
@@ -111,7 +112,7 @@ export default function PDFAnnotationViewer({ invoice }) {
   const [activeField, setActiveField] = useState(null);
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(480);
-  const [imageBlobUrl, setImageBlobUrl] = useState(null);
+  const [fileBlobUrl, setFileBlobUrl] = useState(null);
 
   const ext = invoice.extractedData;
   const hasExtracted = Boolean(
@@ -136,23 +137,22 @@ export default function PDFAnnotationViewer({ invoice }) {
 
   const { filename, mimetype } = invoice.uploadedFile || {};
 
-  // For image invoices: fetch with auth header and create a blob URL so the
-  // <img> tag can display it (plain <img src> can't send Authorization headers).
+  // Fetch the file through the authenticated API endpoint (/api/invoices/:id/file)
+  // so the Bearer token is included automatically. Both PDFs and images go through
+  // this path — react-pdf accepts a blob URL just like a regular URL.
   useEffect(() => {
-    if (!filename || mimetype === 'application/pdf') return;
-    const token = localStorage.getItem('token');
+    if (!invoice._id) return;
     let objectUrl;
-    fetch(`/uploads/${filename}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    })
-      .then((r) => r.blob())
-      .then((blob) => {
-        objectUrl = URL.createObjectURL(blob);
-        setImageBlobUrl(objectUrl);
+    setFileBlobUrl(null);
+    setLoadError(false);
+    invoiceAPI.getFile(invoice._id)
+      .then(({ data }) => {
+        objectUrl = URL.createObjectURL(data);
+        setFileBlobUrl(objectUrl);
       })
-      .catch(() => setImageBlobUrl(null));
+      .catch(() => setLoadError(true));
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [filename, mimetype]);
+  }, [invoice._id]);
 
   // Non-PDF fallback (images)
   if (!filename || mimetype !== 'application/pdf') {
@@ -165,16 +165,18 @@ export default function PDFAnnotationViewer({ invoice }) {
     }
     return (
       <div className="w-full h-full overflow-auto bg-ivory-100 flex items-start justify-center p-4">
-        {imageBlobUrl ? (
+        {fileBlobUrl ? (
           <img
-            src={imageBlobUrl}
+            src={fileBlobUrl}
             alt="Invoice"
             className="max-w-full object-contain shadow-md rounded"
           />
-        ) : (
+        ) : !loadError ? (
           <div className="flex items-center justify-center h-40">
             <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : (
+          <div className="flex items-center justify-center h-40 text-sm text-ivory-500">Preview unavailable</div>
         )}
       </div>
     );
@@ -228,35 +230,28 @@ export default function PDFAnnotationViewer({ invoice }) {
 
       {/* ── PDF canvas ── */}
       <div ref={containerRef} className="flex-1 overflow-auto bg-ivory-100 min-h-0">
-        {loadError ? (
+        {!fileBlobUrl && !loadError ? (
+          <div className="flex items-center justify-center h-40">
+            <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : loadError ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-ivory-600 p-4 text-center">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-ivory-400">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
             </svg>
             <span>Preview unavailable</span>
-            <button
-              onClick={() => {
-                const token = localStorage.getItem('token');
-                fetch(`/uploads/${filename}`, {
-                  headers: token ? { Authorization: `Bearer ${token}` } : {}
-                })
-                  .then((r) => r.blob())
-                  .then((blob) => {
-                    const url = URL.createObjectURL(blob);
-                    window.open(url, '_blank');
-                  });
-              }}
-              className="text-amber-600 hover:underline font-medium"
-            >
-              Open PDF in new tab
-            </button>
+            {fileBlobUrl && (
+              <button
+                onClick={() => window.open(fileBlobUrl, '_blank')}
+                className="text-amber-600 hover:underline font-medium"
+              >
+                Open PDF in new tab
+              </button>
+            )}
           </div>
         ) : (
           <Document
-            file={{
-              url: `/uploads/${filename}`,
-              httpHeaders: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-            }}
+            file={fileBlobUrl}
             onLoadSuccess={({ numPages }) => setNumPages(numPages)}
             onLoadError={() => setLoadError(true)}
             loading={

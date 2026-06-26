@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   uploadInvoice, getInvoices, getInvoice, deleteInvoice,
   triggerOCR, updateFields, submitMatching, rejectInvoice, exportInvoicesCSV,
-  getJobStatus
+  getJobStatus, getInvoiceFile
 } = require('../controllers/invoiceController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -24,6 +24,7 @@ router.get('/export', exportInvoicesCSV);
 // Registered before '/:id' so "jobs" isn't captured as an invoice :id.
 router.get('/jobs/:jobId', getJobStatus);
 router.route('/:id').get(getInvoice).delete(authorize('admin'), deleteInvoice);
+router.get('/:id/file', getInvoiceFile);
 router.post('/:id/ocr', canEdit, triggerOCR);
 router.patch('/:id/fields', canEdit, updateFieldsRules, handleValidation, updateFields);
 router.post('/:id/match', canEdit, submitMatching);
