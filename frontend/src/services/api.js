@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: '/api' });
+// In dev, Vite proxies /api → localhost:5000 (vite.config.js).
+// In production (Render static site), set VITE_API_URL to the full backend
+// origin, e.g. https://invoice-api.onrender.com/api
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');

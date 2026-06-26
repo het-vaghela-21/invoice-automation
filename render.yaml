@@ -1,0 +1,47 @@
+services:
+  # ── Backend API (Node.js web service) ─────────────────────────────────────────
+  - type: web
+    name: invoice-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render injects PORT automatically — backend already reads process.env.PORT
+      - key: MONGODB_URI
+        sync: false   # paste your Atlas connection string in the Render dashboard
+      - key: JWT_SECRET
+        generateValue: true   # Render generates a secure random secret
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        sync: false   # set to https://<your-frontend>.onrender.com after frontend deploys
+      # ML service is disabled in this deployment — backend falls back to regex extraction
+      - key: ML_SERVICE_URL
+        value: ""
+      # Queue disabled — no Redis on free tier; backend processes inline
+      - key: QUEUE_ENABLED
+        value: "false"
+      # Files stored on Render's ephemeral disk (lost on redeploy).
+      # Upgrade to a paid plan and add a Render Disk, or configure MinIO, for persistence.
+      - key: STORAGE_BACKEND
+        value: local
+
+  # ── Frontend (Vite/React static site) ─────────────────────────────────────────
+  - type: web
+    name: invoice-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    # SPA fallback — all paths route to index.html so React Router handles them
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false   # set to https://invoice-api.onrender.com/api after backend deploys
