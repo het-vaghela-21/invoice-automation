@@ -24,6 +24,25 @@ const ALL_FIELDS = [
   { fieldKey: 'bankAccount',   fieldLabel: 'Bank Account' },
 ];
 
+function reliabilityConfig(score) {
+  if (score == null) return { label: 'New',      color: 'text-ivory-500',    bg: 'bg-ivory-100',  dot: 'bg-ivory-400'  };
+  if (score >= 80)   return { label: 'Excellent', color: 'text-ink-700',      bg: 'bg-ink-50',     dot: 'bg-ink-500'    };
+  if (score >= 65)   return { label: 'Good',      color: 'text-teal-700',     bg: 'bg-teal-50',    dot: 'bg-teal-500'   };
+  if (score >= 50)   return { label: 'Fair',      color: 'text-amber-700',    bg: 'bg-amber-50',   dot: 'bg-amber-500'  };
+  return               { label: 'At Risk',   color: 'text-red-700',      bg: 'bg-red-50',     dot: 'bg-red-500'    };
+}
+
+function ReliabilityBadge({ score }) {
+  const cfg = reliabilityConfig(score);
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold ${cfg.bg} ${cfg.color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+      {score != null ? `${score}` : '—'}
+      <span className="opacity-70 font-normal">{cfg.label}</span>
+    </span>
+  );
+}
+
 function VendorModal({ vendor, onClose, onSave }) {
   const defaultRequired = vendor?.requiredFields?.length
     ? vendor.requiredFields.map((f) => f.fieldKey)
@@ -179,7 +198,7 @@ function VendorModal({ vendor, onClose, onSave }) {
   );
 }
 
-function VendorRow({ vendor, onEdit, onDelete, showEdit, showDelete }) {
+function VendorRow({ vendor, analytics, onEdit, onDelete, showEdit, showDelete }) {
   return (
     <tr className="border-b border-ivory-100 hover:bg-ivory-50 transition-colors">
       <td className="px-4 py-3.5">
@@ -200,15 +219,18 @@ function VendorRow({ vendor, onEdit, onDelete, showEdit, showDelete }) {
       </td>
       <td className="px-4 py-3.5 text-xs text-ivory-700">{vendor.paymentTerms || '—'}</td>
       <td className="px-4 py-3.5">
-        {vendor.requiredFields?.length > 0 ? (
-          <div className="flex flex-wrap gap-1 max-w-[260px]">
-            {vendor.requiredFields.map((f) => (
-              <span key={f.fieldKey} className="text-[10px] bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded font-medium whitespace-nowrap">
-                {f.fieldLabel}
-              </span>
-            ))}
+        {analytics ? (
+          <div className="space-y-0.5">
+            <ReliabilityBadge score={analytics.reliabilityScore} />
+            {analytics.processedCount > 0 && (
+              <p className="text-[10px] text-ivory-500 leading-tight">
+                {analytics.passed}✓ {analytics.rejected > 0 ? `${analytics.rejected}✗` : ''} / {analytics.processedCount} processed
+              </p>
+            )}
           </div>
-        ) : <span className="text-ivory-400 text-xs">—</span>}
+        ) : (
+          <span className="text-ivory-300 text-xs animate-pulse">…</span>
+        )}
       </td>
       <td className="px-4 py-3.5">
         <span className={getStatusBadge(vendor.status)}>{vendor.status}</span>
@@ -251,6 +273,7 @@ export default function Vendors() {
   const allowWrite = canWrite(user);
   const allowDelete = canDelete(user);
   const [vendors, setVendors] = useState([]);
+  const [analyticsMap, setAnalyticsMap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [search, setSearch] = useState('');
@@ -258,7 +281,6 @@ export default function Vendors() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Debounce: wait 300 ms after the user stops typing before querying
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
@@ -270,6 +292,17 @@ export default function Vendors() {
   };
 
   useEffect(() => { load(); }, [debouncedSearch]);
+
+  // Load analytics asynchronously — vendor list shows immediately, scores fade in
+  useEffect(() => {
+    vendorAPI.getAnalytics()
+      .then((res) => {
+        const map = {};
+        for (const row of res.data.data) map[String(row.vendorId)] = row;
+        setAnalyticsMap(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -325,11 +358,11 @@ export default function Vendors() {
 
       <div className="bg-white rounded-xl border border-ivory-300 shadow-card overflow-hidden" data-animate>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
-            <caption className="sr-only">List of vendors with contact details, payment terms and status</caption>
+          <table className="w-full text-sm min-w-[820px]">
+            <caption className="sr-only">List of vendors with contact details, reliability scores and status</caption>
             <thead>
               <tr className="bg-ivory-100 border-b border-ivory-200">
-                {['Vendor', 'Tax ID', 'Terms', 'Required Fields', 'Status', 'Added', 'Actions'].map((h) => (
+                {['Vendor', 'Tax ID', 'Terms', 'Reliability', 'Status', 'Added', 'Actions'].map((h) => (
                   <th key={h} scope="col" className="text-left px-4 py-3 text-xs font-bold uppercase tracking-wider text-ivory-600">
                     {h === 'Actions' ? <span className="sr-only">{h}</span> : h}
                   </th>
@@ -373,6 +406,7 @@ export default function Vendors() {
                 <VendorRow
                   key={v._id}
                   vendor={v}
+                  analytics={analyticsMap ? (analyticsMap[String(v._id)] ?? null) : undefined}
                   onEdit={() => setModal(v)}
                   onDelete={() => setDeleteTarget(v)}
                   showEdit={allowWrite}

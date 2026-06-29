@@ -35,6 +35,7 @@ export const vendorAPI = {
   getAll: (params) => api.get('/vendors', { params }),
   getOne: (id) => api.get(`/vendors/${id}`),
   getSummary: (id) => api.get(`/vendors/${id}/summary`),
+  getAnalytics: () => api.get('/vendors/analytics'),
   create: (data) => api.post('/vendors', data),
   update: (id, data) => api.put(`/vendors/${id}`, data),
   delete: (id) => api.delete(`/vendors/${id}`)
