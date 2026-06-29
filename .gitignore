@@ -7,5 +7,3 @@ dist/
 *.log
 mongodb-data/
 
-# LayoutLMv3 source directory (large binaries, not for git)
-ml-services/
