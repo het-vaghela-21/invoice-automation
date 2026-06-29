@@ -7,7 +7,10 @@ exports.getVendors = async (req, res, next) => {
     const { search, status, page = 1, limit = 20 } = req.query;
     const query = {};
     if (status) query.status = status;
-    if (search) query.$text = { $search: search };
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [{ name: re }, { email: re }, { taxId: re }];
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [vendors, total] = await Promise.all([

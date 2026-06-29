@@ -254,15 +254,22 @@ export default function Vendors() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Debounce: wait 300 ms after the user stops typing before querying
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const load = () => {
     setLoading(true);
-    vendorAPI.getAll({ search }).then((res) => setVendors(res.data.data)).finally(() => setLoading(false));
+    vendorAPI.getAll({ search: debouncedSearch }).then((res) => setVendors(res.data.data)).finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [search]);
+  useEffect(() => { load(); }, [debouncedSearch]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;

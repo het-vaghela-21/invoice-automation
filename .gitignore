@@ -7,3 +7,12 @@ dist/
 *.log
 mongodb-data/
 
+# Redis persistence dump
+dump.rdb
+
+# Tesseract language data binaries
+*.traineddata
+
+# Downloaded invoice image datasets (large, not source code)
+images-*/
+

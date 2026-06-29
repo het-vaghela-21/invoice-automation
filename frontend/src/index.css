@@ -19,6 +19,19 @@
   }
   ::selection { background: #f5dda3; color: #16432f; }
 
+  /* ── react-pdf text layer: make <mark> highlights visible ──────────────────
+     The text layer spans use color:transparent so the PDF canvas text shows
+     through. <mark> elements injected by customTextRenderer must override this
+     so their background and outline are visible on top of the rendered page. */
+  .react-pdf__Page__textContent mark {
+    background: var(--mark-bg, rgba(202,138,4,0.45)) !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    border-radius: 3px;
+    padding: 0 1px;
+    outline-offset: 0;
+  }
+
   /* ── Accessibility: honour prefers-reduced-motion for CSS animations ── */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

@@ -6,6 +6,10 @@ const ML_BASE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 // slow or wedged — every call below fails fast and the Node side falls back
 // to its regex/substring logic in the caller's catch block.
 const TIMEOUT_MS = Number(process.env.ML_SERVICE_TIMEOUT_MS) || 8000;
+// LayoutLMv3 + EasyOCR on CPU typically takes 40–90 s per image. Give it
+// enough headroom so it can actually complete rather than timing out and
+// tripping the circuit breaker. Override with ML_EXTRACT_TIMEOUT_MS in .env.
+const EXTRACT_TIMEOUT_MS = Number(process.env.ML_EXTRACT_TIMEOUT_MS) || 180000;
 
 // ── Circuit breaker ──────────────────────────────────────────────────────────
 // Without this, when the ML service is down EVERY call waits the full timeout
@@ -58,7 +62,7 @@ const mlClient = {
       form.append('file', fs.createReadStream(filePath), path.basename(filePath));
       const res = await axios.post(`${ML_BASE_URL}/extract`, form, {
         headers: form.getHeaders(),
-        timeout: 60000,
+        timeout: EXTRACT_TIMEOUT_MS,
       });
       return res.data;
     });
